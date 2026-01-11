@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { format } from "date-fns";
 import {
   Calendar as CalendarIcon,
@@ -10,7 +11,10 @@ import {
   Dumbbell,
   Settings,
   BarChart3,
+  Database,
+  Loader2,
 } from "lucide-react";
+import { useDailySummary } from "@/hooks/use-daily-summary";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -38,6 +42,17 @@ export function Header() {
     goToToday,
   } = useDate();
   const { openFoodLibrary, openExerciseLibrary } = useApp();
+  const { syncDate, isLoading: isSyncing } = useDailySummary();
+  const [syncSuccess, setSyncSuccess] = useState(false);
+
+  const handleSyncToday = async () => {
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+    const result = await syncDate(dateStr);
+    if (result) {
+      setSyncSuccess(true);
+      setTimeout(() => setSyncSuccess(false), 2000);
+    }
+  };
 
   const isToday =
     format(selectedDate, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
@@ -67,6 +82,14 @@ export function Header() {
                 Analytics
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSyncToday} disabled={isSyncing}>
+                {isSyncing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Database className="h-4 w-4 mr-2" />
+                )}
+                {isSyncing ? "Syncing..." : syncSuccess ? "Synced!" : "Sync Daily Summary"}
+              </DropdownMenuItem>
               <DropdownMenuItem disabled>
                 <Settings className="h-4 w-4 mr-2" />
                 Settings

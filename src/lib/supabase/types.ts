@@ -102,3 +102,6 @@ export interface TreadmillSession {
 }
 
 export type TreadmillSessionInsert = Omit<TreadmillSession, "id" | "created_at">;
+
+// Re-export daily summary types for convenience
+export type { DailySummary, DailySummaryData } from "@/lib/daily-summary/types";
