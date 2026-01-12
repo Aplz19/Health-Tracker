@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const accessToken = await getValidAccessToken();
+    const accessToken = await getValidAccessToken(user.id);
 
     if (!accessToken) {
       return NextResponse.json(

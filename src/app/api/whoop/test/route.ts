@@ -1,11 +1,30 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 import { getValidAccessToken } from "@/lib/whoop/client";
 
 const WHOOP_API_BASE = "https://api.prod.whoop.com";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Get user from session
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   try {
-    const accessToken = await getValidAccessToken();
+    const accessToken = await getValidAccessToken(user.id);
 
     if (!accessToken) {
       return NextResponse.json({ error: "Not connected - no token found" }, { status: 401 });
@@ -69,42 +88,6 @@ export async function GET() {
     });
     const profileBody = await profileRes.text();
     results.profile = { status: profileRes.status, body: profileBody.substring(0, 500) };
-
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    // Test various API path patterns for recovery and sleep
-    const pathsToTest = [
-      { name: "v1_dev_recovery", path: `/developer/v1/recovery?start=${weekAgo.toISOString()}&end=${now.toISOString()}` },
-      { name: "v2_dev_recovery", path: `/developer/v2/recovery?start=${weekAgo.toISOString()}&end=${now.toISOString()}` },
-      { name: "v2_recovery", path: `/v2/recovery?start=${weekAgo.toISOString()}&end=${now.toISOString()}` },
-      { name: "v1_dev_sleep", path: `/developer/v1/activity/sleep?start=${weekAgo.toISOString()}&end=${now.toISOString()}` },
-      { name: "v2_dev_sleep", path: `/developer/v2/activity/sleep?start=${weekAgo.toISOString()}&end=${now.toISOString()}` },
-      { name: "v2_sleep", path: `/v2/activity/sleep?start=${weekAgo.toISOString()}&end=${now.toISOString()}` },
-      { name: "v2_dev_cycle", path: `/developer/v2/cycle?limit=1` },
-      { name: "v2_cycle", path: `/v2/cycle?limit=1` },
-    ];
-
-    for (const { name, path } of pathsToTest) {
-      console.log(`[Test] Trying ${name}: ${path}`);
-      const res = await fetch(`${WHOOP_API_BASE}${path}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      results[name] = { status: res.status, body: (await res.text()).substring(0, 300) };
-    }
-
-    // Test for steps endpoint
-    const stepsEndpoints = [
-      `/developer/v2/activity/step`,
-      `/developer/v2/steps`,
-      `/developer/v2/user/step`,
-    ];
-    for (const path of stepsEndpoints) {
-      const res = await fetch(`${WHOOP_API_BASE}${path}?start=${weekAgo.toISOString()}&end=${now.toISOString()}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      results[`steps_${path.split('/').pop()}`] = { status: res.status, body: (await res.text()).substring(0, 200) };
-    }
 
     return NextResponse.json({
       success: true,

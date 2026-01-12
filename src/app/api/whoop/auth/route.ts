@@ -1,6 +1,25 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Get user from session
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
   const clientId = process.env.WHOOP_CLIENT_ID;
   const redirectUri = process.env.WHOOP_REDIRECT_URI;
 
@@ -11,8 +30,8 @@ export async function GET() {
     );
   }
 
-  // Generate state for CSRF protection
-  const state = crypto.randomUUID();
+  // Use user ID as state for CSRF protection and to identify user on callback
+  const state = user.id;
 
   // Build authorization URL
   const params = new URLSearchParams({

@@ -5,6 +5,7 @@ import type { WhoopTokenResponse } from "@/lib/whoop/types";
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
+  const state = searchParams.get("state"); // This is the user_id
   const error = searchParams.get("error");
 
   // Handle errors from Whoop
@@ -20,6 +21,15 @@ export async function GET(request: NextRequest) {
       new URL("/?whoop_error=No authorization code received", request.url)
     );
   }
+
+  if (!state) {
+    return NextResponse.redirect(
+      new URL("/?whoop_error=Invalid state parameter", request.url)
+    );
+  }
+
+  // state contains the user_id
+  const userId = state;
 
   try {
     // Exchange code for tokens
@@ -50,8 +60,9 @@ export async function GET(request: NextRequest) {
 
     const tokens: WhoopTokenResponse = await tokenResponse.json();
 
-    // Store tokens in database
+    // Store tokens in database for this user
     await storeTokens(
+      userId,
       tokens.access_token,
       tokens.refresh_token,
       tokens.expires_in

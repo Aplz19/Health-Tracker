@@ -18,21 +18,22 @@ function getSupabase() {
   );
 }
 
-// Get stored tokens
-export async function getStoredTokens(): Promise<WhoopTokens | null> {
+// Get stored tokens for a specific user
+export async function getStoredTokens(userId: string): Promise<WhoopTokens | null> {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("whoop_tokens")
     .select("*")
-    .limit(1)
+    .eq("user_id", userId)
     .single();
 
   if (error || !data) return null;
   return data as WhoopTokens;
 }
 
-// Store tokens
+// Store tokens for a specific user
 export async function storeTokens(
+  userId: string,
   accessToken: string,
   refreshToken: string,
   expiresIn: number,
@@ -41,22 +42,24 @@ export async function storeTokens(
   const supabase = getSupabase();
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
-  // Delete existing tokens first (single user)
-  await supabase.from("whoop_tokens").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
-  // Insert new tokens
-  await supabase.from("whoop_tokens").insert({
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    expires_at: expiresAt,
-    whoop_user_id: whoopUserId || null,
-  });
+  // Upsert tokens for this user
+  await supabase.from("whoop_tokens").upsert(
+    {
+      user_id: userId,
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_at: expiresAt,
+      whoop_user_id: whoopUserId || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
 }
 
-// Delete tokens
-export async function deleteTokens(): Promise<void> {
+// Delete tokens for a specific user
+export async function deleteTokens(userId: string): Promise<void> {
   const supabase = getSupabase();
-  await supabase.from("whoop_tokens").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+  await supabase.from("whoop_tokens").delete().eq("user_id", userId);
 }
 
 // Check if token is expired
@@ -91,15 +94,16 @@ export async function refreshAccessToken(
   return response.json();
 }
 
-// Get valid access token (refreshes if needed)
-export async function getValidAccessToken(): Promise<string | null> {
-  const tokens = await getStoredTokens();
+// Get valid access token for a user (refreshes if needed)
+export async function getValidAccessToken(userId: string): Promise<string | null> {
+  const tokens = await getStoredTokens(userId);
   if (!tokens) return null;
 
   if (isTokenExpired(tokens)) {
     try {
       const newTokens = await refreshAccessToken(tokens.refresh_token);
       await storeTokens(
+        userId,
         newTokens.access_token,
         newTokens.refresh_token,
         newTokens.expires_in,
@@ -108,7 +112,7 @@ export async function getValidAccessToken(): Promise<string | null> {
       return newTokens.access_token;
     } catch {
       // Refresh failed, tokens are invalid
-      await deleteTokens();
+      await deleteTokens(userId);
       return null;
     }
   }
