@@ -17,6 +17,9 @@ export function useFoodLogs(date: string) {
     setIsLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("food_logs")
         .select(`
@@ -24,6 +27,7 @@ export function useFoodLogs(date: string) {
           food:foods (*)
         `)
         .eq("date", date)
+        .eq("user_id", user.id)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
@@ -38,9 +42,13 @@ export function useFoodLogs(date: string) {
   const addLog = async (foodId: string, mealId: string, servings: number) => {
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("food_logs")
         .insert({
+          user_id: user.id,
           food_id: foodId,
           date,
           meal_id: mealId,

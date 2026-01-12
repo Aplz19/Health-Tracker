@@ -19,8 +19,8 @@ function formatTime(hour: number, minute: number, isPm: boolean): string {
   return `${displayHour}:${displayMinute} ${period}`;
 }
 
-// Fetch and aggregate all data for a specific date
-export async function aggregateDailyData(date: string): Promise<DailySummaryData> {
+// Fetch and aggregate all data for a specific date and user
+export async function aggregateDailyData(date: string, userId: string): Promise<DailySummaryData> {
   // Fetch all data in parallel
   const [
     mealsResult,
@@ -40,22 +40,22 @@ export async function aggregateDailyData(date: string): Promise<DailySummaryData
     treadmillResult,
     whoopResult,
   ] = await Promise.all([
-    supabase.from("meals").select("*").eq("date", date).order("time_hour").order("time_minute"),
-    supabase.from("food_logs").select("*").eq("date", date),
+    supabase.from("meals").select("*").eq("date", date).eq("user_id", userId).order("time_hour").order("time_minute"),
+    supabase.from("food_logs").select("*").eq("date", date).eq("user_id", userId),
     supabase.from("foods").select("*"),
-    supabase.from("creatine_logs").select("amount").eq("date", date).single(),
-    supabase.from("d3_logs").select("amount").eq("date", date).single(),
-    supabase.from("k2_logs").select("amount").eq("date", date).single(),
-    supabase.from("vitamin_c_logs").select("amount").eq("date", date).single(),
-    supabase.from("zinc_logs").select("amount").eq("date", date).single(),
-    supabase.from("magnesium_logs").select("amount").eq("date", date).single(),
-    supabase.from("melatonin_logs").select("amount").eq("date", date).single(),
-    supabase.from("caffeine_logs").select("amount").eq("date", date).single(),
-    supabase.from("exercise_logs").select("*").eq("date", date),
+    supabase.from("creatine_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    supabase.from("d3_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    supabase.from("k2_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    supabase.from("vitamin_c_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    supabase.from("zinc_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    supabase.from("magnesium_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    supabase.from("melatonin_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    supabase.from("caffeine_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    supabase.from("exercise_logs").select("*").eq("date", date).eq("user_id", userId),
     supabase.from("exercise_sets").select("*"),
     supabase.from("exercises").select("*"),
-    supabase.from("treadmill_sessions").select("*").eq("date", date),
-    supabase.from("whoop_data").select("*").eq("date", date).single(),
+    supabase.from("treadmill_sessions").select("*").eq("date", date).eq("user_id", userId),
+    supabase.from("whoop_data").select("*").eq("date", date).eq("user_id", userId).single(),
   ]);
 
   const meals = mealsResult.data || [];
@@ -233,24 +233,32 @@ export async function aggregateDailyData(date: string): Promise<DailySummaryData
 }
 
 // Save aggregated data to daily_summaries table
-export async function saveDailySummary(date: string, data: DailySummaryData) {
+export async function saveDailySummary(date: string, userId: string, data: DailySummaryData) {
   const { error } = await supabase
     .from("daily_summaries")
     .upsert(
       {
+        user_id: userId,
         date,
         data,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "date" }
+      { onConflict: "user_id,date" }
     );
 
   if (error) throw error;
 }
 
-// Main function: aggregate and save
-export async function syncDailySummary(date: string): Promise<DailySummaryData> {
-  const data = await aggregateDailyData(date);
-  await saveDailySummary(date, data);
+// Main function: aggregate and save for a specific user
+export async function syncDailySummary(date: string, userId: string): Promise<DailySummaryData> {
+  const data = await aggregateDailyData(date, userId);
+  await saveDailySummary(date, userId, data);
   return data;
+}
+
+// Helper to get current user and sync (for use in hooks/components)
+export async function syncDailySummaryForCurrentUser(date: string): Promise<DailySummaryData | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  return syncDailySummary(date, user.id);
 }

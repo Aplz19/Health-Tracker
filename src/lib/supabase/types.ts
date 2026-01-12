@@ -27,6 +27,7 @@ export type FoodInsert = Omit<Food, "id" | "created_at" | "updated_at">;
 
 export interface Meal {
   id: string;
+  user_id: string;
   date: string;
   name: string;
   time_hour: number;
@@ -39,6 +40,7 @@ export interface Meal {
 
 export interface FoodLog {
   id: string;
+  user_id: string;
   food_id: string;
   date: string;
   meal_id: string;
@@ -73,6 +75,7 @@ export type ExerciseInsert = Omit<Exercise, "id" | "created_at" | "updated_at">;
 
 export interface ExerciseLog {
   id: string;
+  user_id: string;
   date: string;
   exercise_id: string;
   notes: string | null;
@@ -93,12 +96,35 @@ export interface ExerciseSet {
 
 export interface TreadmillSession {
   id: string;
+  user_id: string;
   date: string;
   duration_minutes: number;
   incline: number;
   speed: number;
   notes: string | null;
   created_at: string;
+}
+
+export interface WhoopData {
+  id: string;
+  user_id: string;
+  date: string;
+  cycle_id: number | null;
+  recovery_score: number | null;
+  hrv_rmssd: number | null;
+  resting_heart_rate: number | null;
+  spo2_percentage: number | null;
+  skin_temp_celsius: number | null;
+  sleep_id: string | null;
+  sleep_score: number | null;
+  sleep_duration_minutes: number | null;
+  strain_score: number | null;
+  kilojoules: number | null;
+  avg_heart_rate: number | null;
+  max_heart_rate: number | null;
+  raw_data: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export type TreadmillSessionInsert = Omit<TreadmillSession, "id" | "created_at">;

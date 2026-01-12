@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase/client";
 
 interface SupplementLog {
   id: string;
+  user_id: string;
   date: string;
   amount: number;
   created_at: string;
@@ -21,10 +22,14 @@ export function useSupplement(tableName: string, date: string) {
     setIsLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from(tableName)
         .select("*")
         .eq("date", date)
+        .eq("user_id", user.id)
         .single();
 
       if (error && error.code === "PGRST116") {
@@ -47,15 +52,19 @@ export function useSupplement(tableName: string, date: string) {
   const updateAmount = async (newAmount: number) => {
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { error } = await supabase
         .from(tableName)
         .upsert(
           {
+            user_id: user.id,
             date,
             amount: newAmount,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: "date" }
+          { onConflict: "user_id,date" }
         );
 
       if (error) throw error;
@@ -84,10 +93,14 @@ export function useSupplement(tableName: string, date: string) {
 
 // Helper to fetch yesterday's value for a specific table
 export async function fetchYesterdayAmount(tableName: string, yesterdayDate: string): Promise<number> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return 0;
+
   const { data } = await supabase
     .from(tableName)
     .select("amount")
     .eq("date", yesterdayDate)
+    .eq("user_id", user.id)
     .single();
 
   return (data as SupplementLog | null)?.amount ?? 0;

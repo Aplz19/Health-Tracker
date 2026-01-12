@@ -21,6 +21,9 @@ export function useExerciseLogs(date: string) {
     setIsLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("exercise_logs")
         .select(`
@@ -29,6 +32,7 @@ export function useExerciseLogs(date: string) {
           sets:exercise_sets (*)
         `)
         .eq("date", date)
+        .eq("user_id", user.id)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
@@ -51,10 +55,14 @@ export function useExerciseLogs(date: string) {
   const addLog = async (exerciseId: string) => {
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       // Create the exercise log
       const { data: logData, error: logError } = await supabase
         .from("exercise_logs")
         .insert({
+          user_id: user.id,
           date,
           exercise_id: exerciseId,
         })

@@ -1,9 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 import { syncDailySummary } from "@/lib/daily-summary/aggregate";
 import { supabase } from "@/lib/supabase/client";
 
+// Helper to get user from request cookies
+async function getUserFromRequest(request: NextRequest) {
+  const serverSupabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
+      },
+    }
+  );
+  const { data: { user } } = await serverSupabase.auth.getUser();
+  return user;
+}
+
 // GET - Fetch existing summary for a date
 export async function GET(request: NextRequest) {
+  const user = await getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const date = searchParams.get("date");
 
@@ -16,6 +39,7 @@ export async function GET(request: NextRequest) {
       .from("daily_summaries")
       .select("*")
       .eq("date", date)
+      .eq("user_id", user.id)
       .single();
 
     if (error && error.code !== "PGRST116") {
@@ -31,13 +55,18 @@ export async function GET(request: NextRequest) {
 
 // POST - Generate/update summary for a date (or date range)
 export async function POST(request: NextRequest) {
+  const user = await getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
     const { date, startDate, endDate } = body;
 
     // Single date sync
     if (date) {
-      const data = await syncDailySummary(date);
+      const data = await syncDailySummary(date, user.id);
       return NextResponse.json({ success: true, summary: data });
     }
 
@@ -49,7 +78,7 @@ export async function POST(request: NextRequest) {
 
       for (let d = start; d <= end; d.setDate(d.getDate() + 1)) {
         const dateStr = d.toISOString().split("T")[0];
-        const data = await syncDailySummary(dateStr);
+        const data = await syncDailySummary(dateStr, user.id);
         results.push(data);
       }
 

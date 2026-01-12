@@ -13,10 +13,14 @@ export function useTreadmill(date: string) {
     setIsLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("treadmill_sessions")
         .select("*")
         .eq("date", date)
+        .eq("user_id", user.id)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
@@ -36,9 +40,13 @@ export function useTreadmill(date: string) {
   }) => {
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data: newSession, error } = await supabase
         .from("treadmill_sessions")
         .insert({
+          user_id: user.id,
           date,
           duration_minutes: data.duration_minutes,
           incline: data.incline,

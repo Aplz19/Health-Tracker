@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import {
   Calendar as CalendarIcon,
@@ -13,8 +14,10 @@ import {
   BarChart3,
   Database,
   Loader2,
+  LogOut,
 } from "lucide-react";
 import { useDailySummary } from "@/hooks/use-daily-summary";
+import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -32,8 +35,10 @@ import {
 import { useDate } from "@/contexts/date-context";
 import { useApp } from "@/contexts/app-context";
 import { cn } from "@/lib/utils";
+import { SettingsModal } from "@/components/settings/settings-modal";
 
 export function Header() {
+  const router = useRouter();
   const {
     selectedDate,
     setSelectedDate,
@@ -43,7 +48,9 @@ export function Header() {
   } = useDate();
   const { openFoodLibrary, openExerciseLibrary } = useApp();
   const { syncDate, isLoading: isSyncing } = useDailySummary();
+  const { signOut } = useAuth();
   const [syncSuccess, setSyncSuccess] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleSyncToday = async () => {
     const dateStr = format(selectedDate, "yyyy-MM-dd");
@@ -52,6 +59,12 @@ export function Header() {
       setSyncSuccess(true);
       setTimeout(() => setSyncSuccess(false), 2000);
     }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/login");
+    router.refresh();
   };
 
   const isToday =
@@ -90,9 +103,14 @@ export function Header() {
                 )}
                 {isSyncing ? "Syncing..." : syncSuccess ? "Synced!" : "Sync Daily Summary"}
               </DropdownMenuItem>
-              <DropdownMenuItem disabled>
+              <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
                 <Settings className="h-4 w-4 mr-2" />
                 Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut}>
+                <LogOut className="h-4 w-4 mr-2" />
+                Sign Out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -155,6 +173,7 @@ export function Header() {
           )}
         </div>
       </div>
+      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </header>
   );
 }

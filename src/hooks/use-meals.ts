@@ -13,10 +13,14 @@ export function useMeals(date: string) {
     setIsLoading(true);
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("meals")
         .select("*")
         .eq("date", date)
+        .eq("user_id", user.id)
         .order("sort_order", { ascending: true });
 
       if (error) throw error;
@@ -31,6 +35,9 @@ export function useMeals(date: string) {
   const addMeal = async () => {
     setError(null);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const nextOrder = meals.length;
       const nextName = `Meal ${meals.length + 1}`;
 
@@ -45,6 +52,7 @@ export function useMeals(date: string) {
       const { data, error } = await supabase
         .from("meals")
         .insert({
+          user_id: user.id,
           date,
           name: nextName,
           time_hour: hour,

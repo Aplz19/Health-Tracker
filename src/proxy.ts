@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
 // Paths that don't require authentication
-const publicPaths = ["/login", "/api/auth"];
+const publicPaths = ["/login", "/signup", "/api/auth", "/api/cron"];
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths
@@ -20,11 +21,29 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for auth cookie
-  const authCookie = request.cookies.get("auth_session");
+  // Create Supabase client for server
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
+        set() {
+          // Not needed for reading session
+        },
+        remove() {
+          // Not needed for reading session
+        },
+      },
+    }
+  );
 
-  if (!authCookie || authCookie.value !== "authenticated") {
-    // Redirect to login
+  const { data: { session } } = await supabase.auth.getSession();
+
+  // Redirect to login if no session
+  if (!session) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
   }
@@ -34,12 +53,6 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
     "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };

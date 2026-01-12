@@ -1,3 +1,4 @@
+import { AuthProvider } from "@/contexts/auth-context";
 import { DateProvider } from "@/contexts/date-context";
 import { AppProvider } from "@/contexts/app-context";
 import { Header } from "@/components/layout/header";
@@ -7,17 +8,19 @@ import { ExerciseLibraryOverlay } from "@/components/exercise/exercise-library-o
 
 export default function Home() {
   return (
-    <AppProvider>
-      <DateProvider>
-        <div className="min-h-screen bg-background">
-          <Header />
-          <main className="container max-w-screen-md mx-auto">
-            <TabNavigation />
-          </main>
-          <FoodLibraryOverlay />
-          <ExerciseLibraryOverlay />
-        </div>
-      </DateProvider>
-    </AppProvider>
+    <AuthProvider>
+      <AppProvider>
+        <DateProvider>
+          <div className="min-h-screen bg-background">
+            <Header />
+            <main className="container max-w-screen-md mx-auto">
+              <TabNavigation />
+            </main>
+            <FoodLibraryOverlay />
+            <ExerciseLibraryOverlay />
+          </div>
+        </DateProvider>
+      </AppProvider>
+    </AuthProvider>
   );
 }

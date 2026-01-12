@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
 import {
   getValidAccessToken,
   fetchCycles,
@@ -13,6 +14,23 @@ function getSupabase() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
+}
+
+// Helper to get user from request cookies
+async function getUserFromRequest(request: NextRequest) {
+  const serverSupabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
+      },
+    }
+  );
+  const { data: { user } } = await serverSupabase.auth.getUser();
+  return user;
 }
 
 // Convert milliseconds to minutes
@@ -29,6 +47,14 @@ function getDateFromTimestamp(timestamp: string, offset?: string): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+
     const accessToken = await getValidAccessToken();
 
     if (!accessToken) {
@@ -104,6 +130,7 @@ export async function POST(request: NextRequest) {
       }
 
       const dayData = {
+        user_id: user.id,
         date: cycleDate,
         cycle_id: cycle.id,
         recovery_score: recovery?.score?.recovery_score ?? null,
@@ -133,7 +160,7 @@ export async function POST(request: NextRequest) {
     if (processedData.length > 0) {
       const { error } = await supabase
         .from("whoop_data")
-        .upsert(processedData, { onConflict: "date" });
+        .upsert(processedData, { onConflict: "user_id,date" });
 
       if (error) {
         console.error("Database upsert error:", error);
@@ -160,6 +187,14 @@ export async function POST(request: NextRequest) {
 
 // GET endpoint to fetch cached data for a specific date
 export async function GET(request: NextRequest) {
+  const user = await getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json(
+      { error: "Not authenticated" },
+      { status: 401 }
+    );
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const date = searchParams.get("date");
 
@@ -176,6 +211,7 @@ export async function GET(request: NextRequest) {
       .from("whoop_data")
       .select("*")
       .eq("date", date)
+      .eq("user_id", user.id)
       .single();
 
     if (error && error.code !== "PGRST116") {
