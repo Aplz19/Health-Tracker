@@ -174,6 +174,8 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
         Html5QrcodeSupportedFormats.UPC_E,
         Html5QrcodeSupportedFormats.CODE_128,
         Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.CODABAR,
       ],
       verbose: false,
     });
@@ -181,12 +183,16 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
     scannerRef.current = scanner;
 
     try {
+      // Calculate qrbox based on container size
+      const containerWidth = containerRef.current?.offsetWidth || 300;
+      const qrboxWidth = Math.min(containerWidth - 40, 280);
+      const qrboxHeight = Math.min(150, qrboxWidth * 0.5);
+
       await scanner.start(
         { facingMode: "environment" },
         {
-          fps: 10,
-          qrbox: { width: 250, height: 150 },
-          aspectRatio: 1.5,
+          fps: 15,
+          qrbox: { width: qrboxWidth, height: qrboxHeight },
         },
         async (decodedText) => {
           // Stop scanning when barcode found
@@ -194,7 +200,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
           lookupBarcode(decodedText);
         },
         () => {
-          // QR code scan error - ignore, keep scanning
+          // Scan frame error - ignore, keep scanning
         }
       );
     } catch (error) {
