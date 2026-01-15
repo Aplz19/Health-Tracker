@@ -3,14 +3,14 @@
 import { FoodListItem } from "./food-list-item";
 import type { Food } from "@/lib/supabase/types";
 
-interface FoodListProps {
-  foods: Food[];
+interface FoodListProps<T extends Food = Food> {
+  foods: T[];
   isLoading: boolean;
-  onEdit?: (food: Food) => void;
+  onEdit?: (food: T) => void;
   onDelete?: (id: string) => void;
 }
 
-export function FoodList({ foods, isLoading, onEdit, onDelete }: FoodListProps) {
+export function FoodList<T extends Food>({ foods, isLoading, onEdit, onDelete }: FoodListProps<T>) {
   if (isLoading) {
     return (
       <div className="p-4 text-center text-sm text-muted-foreground">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, ArrowLeft } from "lucide-react";
+import { Search, ArrowLeft, Database, Loader2, ScanBarcode } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,8 +11,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useFoods } from "@/hooks/use-foods";
+import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
+import { BarcodeScanner } from "./barcode-scanner";
 import type { Food } from "@/lib/supabase/types";
+import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
 
 const RECENT_FOODS_KEY = "health-tracker-recent-foods";
 const MAX_RECENT_FOODS = 50;
@@ -103,6 +105,14 @@ interface FoodPickerDialogProps {
   onSelectFood: (food: Food, servings: number) => void;
 }
 
+// Type for selected food (could be local or scanned)
+type SelectedFood = Food | TransformedOFFFood;
+
+// Type guard to check if food is from Open Food Facts
+function isScannedFood(food: SelectedFood): food is TransformedOFFFood {
+  return "source" in food && food.source === "openfoodfacts";
+}
+
 export function FoodPickerDialog({
   open,
   onOpenChange,
@@ -110,37 +120,51 @@ export function FoodPickerDialog({
   onSelectFood,
 }: FoodPickerDialogProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedFood, setSelectedFood] = useState<Food | null>(null);
+  const [selectedFood, setSelectedFood] = useState<SelectedFood | null>(null);
   const [unit, setUnit] = useState<UnitType>("serving");
   const [amount, setAmount] = useState<number>(1);
   const [recentIds, setRecentIds] = useState<string[]>([]);
-  const { foods, isLoading } = useFoods(searchQuery);
+  const [isSaving, setIsSaving] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  // User's personal food library
+  const {
+    foods: libraryFoods,
+    isLoading: isLoadingLibrary,
+    addToLibrary,
+  } = useUserFoodLibrary(searchQuery);
 
   // Load recent food IDs on mount
   useEffect(() => {
     setRecentIds(getRecentFoodIds());
   }, []);
 
-  // Sort foods by recent usage
-  const sortedFoods = useMemo(() => {
-    if (recentIds.length === 0) return foods;
+  // Sort library foods by recent usage
+  const sortedLibraryFoods = useMemo(() => {
+    if (recentIds.length === 0) return libraryFoods;
 
-    return [...foods].sort((a, b) => {
+    return [...libraryFoods].sort((a, b) => {
       const aIndex = recentIds.indexOf(a.id);
       const bIndex = recentIds.indexOf(b.id);
 
-      // If both are in recent list, sort by recency
       if (aIndex !== -1 && bIndex !== -1) {
         return aIndex - bIndex;
       }
-      // If only a is in recent list, a comes first
       if (aIndex !== -1) return -1;
-      // If only b is in recent list, b comes first
       if (bIndex !== -1) return 1;
-      // Neither in recent list, keep original order
       return 0;
     });
-  }, [foods, recentIds]);
+  }, [libraryFoods, recentIds]);
+
+  const isLoading = isLoadingLibrary;
+
+  // Handle scanned food from barcode
+  const handleScannedFood = (food: TransformedOFFFood) => {
+    setSelectedFood(food);
+    setUnit("serving");
+    setAmount(1);
+    setScannerOpen(false);
+  };
 
   const parsedServing = selectedFood ? parseServingSize(selectedFood.serving_size) : null;
   const canUseCustomUnit = parsedServing !== null;
@@ -158,7 +182,7 @@ export function FoodPickerDialog({
 
   const multiplier = getServingsMultiplier();
 
-  const handleSelectFood = (food: Food) => {
+  const handleSelectFood = (food: SelectedFood) => {
     setSelectedFood(food);
     setUnit("serving");
     setAmount(1);
@@ -170,19 +194,61 @@ export function FoodPickerDialog({
     setUnit("serving");
   };
 
-  const handleConfirm = () => {
-    if (selectedFood) {
-      // Track this food as recently used
-      addRecentFoodId(selectedFood.id);
-      setRecentIds(getRecentFoodIds());
+  const handleConfirm = async () => {
+    if (!selectedFood || isSaving) return;
 
-      onSelectFood(selectedFood, multiplier);
-      onOpenChange(false);
-      setSearchQuery("");
-      setSelectedFood(null);
-      setAmount(1);
-      setUnit("serving");
+    let foodToAdd: Food;
+
+    // If it's a scanned food, save to cache and add to user's library
+    if (isScannedFood(selectedFood)) {
+      setIsSaving(true);
+      try {
+        // Save to global cache AND user's library
+        foodToAdd = await addToLibrary({
+          name: selectedFood.name,
+          serving_size: selectedFood.serving_size,
+          serving_size_grams: selectedFood.serving_size_grams,
+          calories: selectedFood.calories,
+          protein: selectedFood.protein,
+          total_fat: selectedFood.total_fat,
+          saturated_fat: selectedFood.saturated_fat,
+          trans_fat: selectedFood.trans_fat,
+          polyunsaturated_fat: selectedFood.polyunsaturated_fat,
+          monounsaturated_fat: selectedFood.monounsaturated_fat,
+          sodium: selectedFood.sodium,
+          total_carbohydrates: selectedFood.total_carbohydrates,
+          fiber: selectedFood.fiber,
+          sugar: selectedFood.sugar,
+          added_sugar: selectedFood.added_sugar,
+          vitamin_a: selectedFood.vitamin_a,
+          vitamin_c: selectedFood.vitamin_c,
+          vitamin_d: selectedFood.vitamin_d,
+          calcium: selectedFood.calcium,
+          iron: selectedFood.iron,
+          fdc_id: null,
+          barcode: selectedFood.barcode,
+          source: selectedFood.source,
+        });
+      } catch (err) {
+        console.error("Failed to save food:", err);
+        setIsSaving(false);
+        return;
+      }
+      setIsSaving(false);
+    } else {
+      foodToAdd = selectedFood;
     }
+
+    // Track this food as recently used
+    addRecentFoodId(foodToAdd.id);
+    setRecentIds(getRecentFoodIds());
+
+    onSelectFood(foodToAdd, multiplier);
+    onOpenChange(false);
+    setSearchQuery("");
+    setSelectedFood(null);
+    setAmount(1);
+    setUnit("serving");
   };
 
   const handleClose = (open: boolean) => {
@@ -301,70 +367,104 @@ export function FoodPickerDialog({
               </div>
             </div>
 
-            <Button onClick={handleConfirm} className="w-full" disabled={amount <= 0}>
-              Add to {mealTitle}
+            <Button onClick={handleConfirm} className="w-full" disabled={amount <= 0 || isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                `Add to ${mealTitle}`
+              )}
             </Button>
           </div>
         ) : (
           // Food selection step
           <div className="flex flex-col min-h-0 overflow-hidden">
-            <div className="relative flex-shrink-0">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search your foods..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                autoFocus
-              />
+            <div className="flex gap-2 flex-shrink-0">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search your foods..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                  autoFocus
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setScannerOpen(true)}
+                className="h-10 w-10 shrink-0"
+              >
+                <ScanBarcode className="h-4 w-4" />
+              </Button>
             </div>
 
             <div className="flex-1 overflow-y-auto mt-3">
-              {isLoading ? (
+              {isLoading && sortedLibraryFoods.length === 0 ? (
                 <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
                   <p className="text-sm text-muted-foreground">Loading...</p>
                 </div>
-              ) : sortedFoods.length === 0 ? (
+              ) : sortedLibraryFoods.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <p className="text-sm text-muted-foreground">
                     {searchQuery
-                      ? "No foods found"
-                      : "No foods in your library yet."}
+                      ? "No foods found in your library"
+                      : "Your food library is empty"}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {!searchQuery && "Add foods from the menu to get started!"}
+                    Scan a barcode or add foods from the Food Library
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2 pr-2">
-                  {sortedFoods.map((food) => (
-                    <Card
-                      key={food.id}
-                      className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
-                      onClick={() => handleSelectFood(food)}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium">{food.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {food.serving_size}
-                          </p>
-                        </div>
-                        <div className="text-right text-sm">
-                          <p className="font-medium">{food.calories} cal</p>
-                          <p className="text-xs text-muted-foreground">
-                            {food.protein}P | {food.total_carbohydrates}C | {food.total_fat}F
-                          </p>
-                        </div>
+                <div className="space-y-3 pr-2">
+                  {/* User's library foods */}
+                  {sortedLibraryFoods.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+                        <Database className="h-3 w-3" />
+                        <span>Your Library</span>
                       </div>
-                    </Card>
-                  ))}
+                      {sortedLibraryFoods.map((food) => (
+                        <Card
+                          key={food.id}
+                          className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => handleSelectFood(food)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium truncate">{food.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {food.serving_size}
+                              </p>
+                            </div>
+                            <div className="text-right text-sm ml-2 shrink-0">
+                              <p className="font-medium">{food.calories} cal</p>
+                              <p className="text-xs text-muted-foreground">
+                                {food.protein}P | {food.total_carbohydrates}C | {food.total_fat}F
+                              </p>
+                            </div>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+
                 </div>
               )}
             </div>
           </div>
         )}
       </DialogContent>
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onFoodFound={handleScannedFood}
+      />
     </Dialog>
   );
 }

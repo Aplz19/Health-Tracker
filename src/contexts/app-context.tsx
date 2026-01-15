@@ -9,6 +9,9 @@ interface AppContextType {
   isExerciseLibraryOpen: boolean;
   openExerciseLibrary: () => void;
   closeExerciseLibrary: () => void;
+  isSupplementLibraryOpen: boolean;
+  openSupplementLibrary: () => void;
+  closeSupplementLibrary: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -16,11 +19,14 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [isFoodLibraryOpen, setIsFoodLibraryOpen] = useState(false);
   const [isExerciseLibraryOpen, setIsExerciseLibraryOpen] = useState(false);
+  const [isSupplementLibraryOpen, setIsSupplementLibraryOpen] = useState(false);
 
   const openFoodLibrary = () => setIsFoodLibraryOpen(true);
   const closeFoodLibrary = () => setIsFoodLibraryOpen(false);
   const openExerciseLibrary = () => setIsExerciseLibraryOpen(true);
   const closeExerciseLibrary = () => setIsExerciseLibraryOpen(false);
+  const openSupplementLibrary = () => setIsSupplementLibraryOpen(true);
+  const closeSupplementLibrary = () => setIsSupplementLibraryOpen(false);
 
   return (
     <AppContext.Provider
@@ -31,6 +37,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         isExerciseLibraryOpen,
         openExerciseLibrary,
         closeExerciseLibrary,
+        isSupplementLibraryOpen,
+        openSupplementLibrary,
+        closeSupplementLibrary,
       }}
     >
       {children}

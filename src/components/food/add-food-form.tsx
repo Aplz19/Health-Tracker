@@ -54,6 +54,7 @@ interface AddFoodFormProps {
 const initialFormData: FoodInsert = {
   name: "",
   serving_size: "",
+  serving_size_grams: null,
   calories: 0,
   protein: 0,
   total_fat: 0,
@@ -71,12 +72,16 @@ const initialFormData: FoodInsert = {
   vitamin_d: 0,
   calcium: 0,
   iron: 0,
+  fdc_id: null,
+  barcode: null,
+  source: "manual",
 };
 
 function foodToFormData(food: Food): FoodInsert {
   return {
     name: food.name,
     serving_size: food.serving_size,
+    serving_size_grams: food.serving_size_grams,
     calories: food.calories,
     protein: food.protein,
     total_fat: food.total_fat,
@@ -94,6 +99,9 @@ function foodToFormData(food: Food): FoodInsert {
     vitamin_d: food.vitamin_d ?? 0,
     calcium: food.calcium ?? 0,
     iron: food.iron ?? 0,
+    fdc_id: food.fdc_id,
+    barcode: food.barcode,
+    source: food.source,
   };
 }
 

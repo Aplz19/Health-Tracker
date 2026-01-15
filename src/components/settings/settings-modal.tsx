@@ -23,23 +23,23 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-[700px] w-[95vw] max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="habits" className="flex items-center gap-2">
-              <ListChecks className="h-4 w-4" />
-              <span className="hidden sm:inline">Habits</span>
+          <TabsList className="grid w-full grid-cols-3 h-12">
+            <TabsTrigger value="habits" className="flex items-center gap-2 text-base py-3">
+              <ListChecks className="h-5 w-5" />
+              <span>Habits</span>
             </TabsTrigger>
-            <TabsTrigger value="supplements" className="flex items-center gap-2">
-              <Pill className="h-4 w-4" />
-              <span className="hidden sm:inline">Supplements</span>
+            <TabsTrigger value="supplements" className="flex items-center gap-2 text-base py-3">
+              <Pill className="h-5 w-5" />
+              <span>Supplements</span>
             </TabsTrigger>
-            <TabsTrigger value="whoop" className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              <span className="hidden sm:inline">Whoop</span>
+            <TabsTrigger value="whoop" className="flex items-center gap-2 text-base py-3">
+              <Activity className="h-5 w-5" />
+              <span>Whoop</span>
             </TabsTrigger>
           </TabsList>
           <div className="flex-1 overflow-y-auto mt-4">

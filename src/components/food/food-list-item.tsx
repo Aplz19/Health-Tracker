@@ -5,13 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { Food } from "@/lib/supabase/types";
 
-interface FoodListItemProps {
-  food: Food;
-  onEdit?: (food: Food) => void;
+interface FoodListItemProps<T extends Food = Food> {
+  food: T;
+  onEdit?: (food: T) => void;
   onDelete?: (id: string) => void;
 }
 
-export function FoodListItem({ food, onEdit, onDelete }: FoodListItemProps) {
+export function FoodListItem<T extends Food>({ food, onEdit, onDelete }: FoodListItemProps<T>) {
   return (
     <Card className="p-3">
       <div className="flex items-start justify-between gap-2">

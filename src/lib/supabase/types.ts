@@ -2,6 +2,7 @@ export interface Food {
   id: string;
   name: string;
   serving_size: string;
+  serving_size_grams: number | null;
   calories: number;
   protein: number;
   total_fat: number;
@@ -19,11 +20,23 @@ export interface Food {
   vitamin_d: number | null;
   calcium: number | null;
   iron: number | null;
+  // Source tracking
+  fdc_id: number | null;        // USDA FoodData Central ID (legacy)
+  barcode: string | null;       // Barcode for scanned foods
+  source: "manual" | "usda" | "openfoodfacts";  // Where this food came from
   created_at: string;
   updated_at: string;
 }
 
 export type FoodInsert = Omit<Food, "id" | "created_at" | "updated_at">;
+
+// User's personal food library (favorites)
+export interface UserFoodLibrary {
+  id: string;
+  user_id: string;
+  food_id: string;
+  added_at: string;
+}
 
 export interface Meal {
   id: string;

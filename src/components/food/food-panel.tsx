@@ -3,25 +3,31 @@
 import { useState } from "react";
 import { FoodLibraryView } from "./food-library-view";
 import { AddFoodFormView } from "./add-food-form-view";
-import { useFoods } from "@/hooks/use-foods";
+import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
 import { cn } from "@/lib/utils";
-import type { Food } from "@/lib/supabase/types";
+import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
 
 type PanelView = "library" | "add-form";
 
 export function FoodPanel() {
   const [currentView, setCurrentView] = useState<PanelView>("library");
   const [searchQuery, setSearchQuery] = useState("");
-  const [editingFood, setEditingFood] = useState<Food | null>(null);
+  const [editingFood, setEditingFood] = useState<LibraryFood | null>(null);
 
-  const { foods, isLoading, addFood, updateFood, deleteFood } = useFoods(searchQuery);
+  const {
+    foods,
+    isLoading,
+    addToLibrary,
+    updateFood,
+    removeFromLibrary,
+  } = useUserFoodLibrary(searchQuery);
 
   const showAddForm = () => {
     setEditingFood(null);
     setCurrentView("add-form");
   };
 
-  const showEditForm = (food: Food) => {
+  const showEditForm = (food: LibraryFood) => {
     setEditingFood(food);
     setCurrentView("add-form");
   };
@@ -29,6 +35,39 @@ export function FoodPanel() {
   const showLibrary = () => {
     setEditingFood(null);
     setCurrentView("library");
+  };
+
+  const handleDeleteFood = async (libraryId: string) => {
+    await removeFromLibrary(libraryId);
+  };
+
+  const handleAddScannedFood = async (food: TransformedOFFFood) => {
+    // Map OFF food to FoodInsert format
+    await addToLibrary({
+      name: food.name,
+      serving_size: food.serving_size,
+      serving_size_grams: food.serving_size_grams,
+      calories: food.calories,
+      protein: food.protein,
+      total_fat: food.total_fat,
+      saturated_fat: food.saturated_fat,
+      trans_fat: food.trans_fat,
+      polyunsaturated_fat: food.polyunsaturated_fat,
+      monounsaturated_fat: food.monounsaturated_fat,
+      sodium: food.sodium,
+      total_carbohydrates: food.total_carbohydrates,
+      fiber: food.fiber,
+      sugar: food.sugar,
+      added_sugar: food.added_sugar,
+      vitamin_a: food.vitamin_a,
+      vitamin_c: food.vitamin_c,
+      vitamin_d: food.vitamin_d,
+      calcium: food.calcium,
+      iron: food.iron,
+      fdc_id: null,
+      barcode: food.barcode,
+      source: food.source,
+    });
   };
 
   return (
@@ -49,7 +88,8 @@ export function FoodPanel() {
             onSearchChange={setSearchQuery}
             onAddFood={showAddForm}
             onEditFood={showEditForm}
-            onDeleteFood={deleteFood}
+            onDeleteFood={handleDeleteFood}
+            onAddScannedFood={handleAddScannedFood}
           />
         </div>
 
@@ -62,7 +102,7 @@ export function FoodPanel() {
               if (editingFood) {
                 await updateFood(editingFood.id, data);
               } else {
-                await addFood(data);
+                await addToLibrary(data);
               }
               showLibrary();
             }}
