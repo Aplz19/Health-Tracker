@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import { Html5Qrcode } from "html5-qrcode";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,31 +20,25 @@ interface BarcodeScannerProps {
 
 type ScanState =
   | { type: "requesting_permission" }
-  | { type: "scanning" }
+  | { type: "camera_ready" }
+  | { type: "processing" }
   | { type: "loading"; barcode: string }
   | { type: "found"; food: TransformedOFFFood }
   | { type: "not_found"; barcode: string }
+  | { type: "no_barcode_found" }
   | { type: "permission_denied" }
   | { type: "error"; message: string };
 
 export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerProps) {
   const [scanState, setScanState] = useState<ScanState>({ type: "requesting_permission" });
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [shouldStartScanner, setShouldStartScanner] = useState(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isStartingRef = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  const stopScanner = useCallback(async () => {
-    if (scannerRef.current) {
-      try {
-        const state = scannerRef.current.getState();
-        if (state === 2) { // SCANNING state
-          await scannerRef.current.stop();
-        }
-      } catch {
-        // Ignore stop errors
-      }
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
     }
   }, []);
 
@@ -56,7 +50,6 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
       const data = await response.json();
 
       if (data.status === 1 && data.product) {
-        // Transform the raw OFF data to our format
         const food = transformOFFProduct(data.product, barcode);
         setScanState({ type: "found", food });
       } else {
@@ -70,212 +63,113 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
     }
   }, []);
 
-  // Request camera permission explicitly with timeout
-  const requestCameraPermission = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+  const startCamera = useCallback(async () => {
+    setScanState({ type: "requesting_permission" });
+
     try {
       // Check if mediaDevices is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        return {
-          success: false,
-          error: "Camera not supported on this browser. Try using Safari on iOS."
-        };
+        setScanState({
+          type: "error",
+          message: "Camera not supported on this browser. Try using Safari on iOS."
+        });
+        return;
       }
 
-      // First check if we're on HTTPS (required for camera on mobile)
-      if (typeof window !== "undefined" &&
-          window.location.protocol !== "https:" &&
-          window.location.hostname !== "localhost") {
-        return {
-          success: false,
-          error: "Camera requires a secure connection (HTTPS)."
-        };
-      }
-
-      // Create a promise that times out after 10 seconds
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("timeout")), 10000);
+      // Request camera access
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
       });
 
-      // Try to get camera stream to trigger permission prompt
-      const stream = await Promise.race([
-        navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" }
-        }),
-        timeoutPromise
-      ]);
+      streamRef.current = stream;
 
-      // Got permission, stop the stream (we'll use html5-qrcode to manage it)
-      stream.getTracks().forEach(track => track.stop());
-      return { success: true };
+      // Wait for video element to be ready
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setScanState({ type: "camera_ready" });
+      }
     } catch (error) {
-      console.error("Camera permission error:", error);
+      console.error("Camera error:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      if (errorMessage === "timeout") {
-        return {
-          success: false,
-          error: "Camera request timed out. On iOS, try using Safari instead of Chrome."
-        };
-      }
-
-      // Check for specific iOS/permission errors
       if (errorMessage.includes("not allowed") ||
           errorMessage.includes("Permission denied") ||
           errorMessage.includes("NotAllowedError")) {
-        return { success: false, error: "permission_denied" };
+        setScanState({ type: "permission_denied" });
+      } else {
+        setScanState({ type: "error", message: errorMessage });
       }
-
-      return { success: false, error: errorMessage };
     }
   }, []);
 
-  // Step 1: Request permission only
-  const requestPermission = useCallback(async () => {
-    setScanState({ type: "requesting_permission" });
-    const result = await requestCameraPermission();
+  const captureAndScan = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current) return;
 
-    if (!result.success) {
-      setHasPermission(false);
-      if (result.error === "permission_denied") {
-        setScanState({ type: "permission_denied" });
-      } else {
-        setScanState({ type: "error", message: result.error || "Camera access failed" });
-      }
+    setScanState({ type: "processing" });
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) {
+      setScanState({ type: "error", message: "Could not get canvas context" });
       return;
     }
 
-    // Permission granted - show scanning state (which renders the container)
-    // The actual scanner will start via useEffect once container is ready
-    setHasPermission(true);
-    setScanState({ type: "scanning" });
-    setShouldStartScanner(true);
-  }, [requestCameraPermission]);
+    // Set canvas size to match video
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
 
-  // Step 2: Initialize scanner (called after container is rendered)
-  const initializeScanner = useCallback(async () => {
-    if (!containerRef.current || scannerRef.current || isStartingRef.current) return;
+    // Draw the current video frame to canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    isStartingRef.current = true;
-    const scannerId = "barcode-scanner-region";
-
-    // Create scanner element if it doesn't exist
-    let scannerElement = document.getElementById(scannerId);
-    if (!scannerElement) {
-      scannerElement = document.createElement("div");
-      scannerElement.id = scannerId;
-      containerRef.current.appendChild(scannerElement);
-    }
-
-    const scanner = new Html5Qrcode(scannerId, {
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.ITF,
-        Html5QrcodeSupportedFormats.CODABAR,
-      ],
-      verbose: false,
-    });
-
-    scannerRef.current = scanner;
-
-    try {
-      // Calculate qrbox based on container size
-      const containerWidth = containerRef.current?.offsetWidth || 300;
-      const qrboxWidth = Math.min(containerWidth - 40, 280);
-      const qrboxHeight = Math.min(150, qrboxWidth * 0.5);
-
-      await scanner.start(
-        { facingMode: "environment" },
-        {
-          fps: 15,
-          qrbox: { width: qrboxWidth, height: qrboxHeight },
-        },
-        async (decodedText) => {
-          // Stop scanning when barcode found
-          await stopScanner();
-          lookupBarcode(decodedText);
-        },
-        () => {
-          // Scan frame error - ignore, keep scanning
-        }
-      );
-    } catch (error) {
-      console.error("Scanner error:", error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      // Check for specific permission errors
-      if (errorMessage.toLowerCase().includes("permission") ||
-          errorMessage.toLowerCase().includes("denied") ||
-          errorMessage.toLowerCase().includes("notallowed")) {
-        setScanState({ type: "permission_denied" });
-      } else {
-        setScanState({
-          type: "error",
-          message: errorMessage,
-        });
+    // Convert to blob for scanning
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        setScanState({ type: "error", message: "Could not capture image" });
+        return;
       }
-    } finally {
-      isStartingRef.current = false;
-    }
-  }, [lookupBarcode, stopScanner]);
 
-  // Start scanner when container is ready and we have permission
-  useEffect(() => {
-    if (shouldStartScanner && scanState.type === "scanning" && containerRef.current && !scannerRef.current) {
-      // Small delay to ensure DOM is ready
-      const timeout = setTimeout(() => {
-        initializeScanner();
-      }, 100);
-      return () => clearTimeout(timeout);
-    }
-  }, [shouldStartScanner, scanState.type, initializeScanner]);
+      try {
+        // Create a file from the blob
+        const file = new File([blob], "capture.png", { type: "image/png" });
 
-  // Start permission request when dialog opens
+        // Use Html5Qrcode to scan the file
+        const html5Qrcode = new Html5Qrcode("temp-scanner");
+
+        const result = await html5Qrcode.scanFile(file, true);
+
+        // Clean up
+        html5Qrcode.clear();
+
+        // Stop camera and lookup the barcode
+        stopCamera();
+        lookupBarcode(result);
+      } catch (error) {
+        console.error("Scan error:", error);
+        // No barcode found in the image
+        setScanState({ type: "no_barcode_found" });
+      }
+    }, "image/png");
+  }, [stopCamera, lookupBarcode]);
+
+  // Start camera when dialog opens
   useEffect(() => {
     if (open) {
-      setScanState({ type: "requesting_permission" });
-      setHasPermission(null);
-      setShouldStartScanner(false);
-      isStartingRef.current = false;
-      // Small delay to ensure dialog is rendered
-      const timeout = setTimeout(() => {
-        requestPermission();
-      }, 100);
-      return () => clearTimeout(timeout);
+      startCamera();
     } else {
-      stopScanner();
-      scannerRef.current = null;
-      setShouldStartScanner(false);
-      isStartingRef.current = false;
+      stopCamera();
     }
-  }, [open, requestPermission, stopScanner]);
+    return () => stopCamera();
+  }, [open, startCamera, stopCamera]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopScanner();
-    };
-  }, [stopScanner]);
-
-  const handleScanAgain = async () => {
-    // Stop any existing scanner
-    await stopScanner();
-    scannerRef.current = null;
-    isStartingRef.current = false;
-    setShouldStartScanner(false);
-
-    // Clear the scanner container
-    const scannerElement = document.getElementById("barcode-scanner-region");
-    if (scannerElement) {
-      scannerElement.remove();
-    }
-
-    // Request permission again
-    await requestPermission();
+  const handleRetry = () => {
+    startCamera();
   };
 
   const handleAddFood = () => {
@@ -296,6 +190,12 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Hidden temp element for scanner */}
+          <div id="temp-scanner" style={{ display: "none" }} />
+
+          {/* Hidden canvas for capture */}
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+
           {/* Requesting permission */}
           {scanState.type === "requesting_permission" && (
             <div className="py-12 text-center space-y-4">
@@ -345,39 +245,73 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                 </ol>
               </div>
 
-              <Button onClick={handleScanAgain} className="w-full">
+              <Button onClick={handleRetry} className="w-full">
                 <Camera className="h-4 w-4 mr-2" />
                 Try Again
               </Button>
             </div>
           )}
 
-          {/* Scanner view */}
-          {scanState.type === "scanning" && (
-            <>
-              <div
-                ref={containerRef}
-                className="relative w-full bg-black rounded-lg overflow-hidden flex items-center justify-center"
-                style={{ minHeight: "280px" }}
-              />
+          {/* Camera ready - show video feed with capture button */}
+          {scanState.type === "camera_ready" && (
+            <div className="space-y-4">
+              <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ minHeight: "280px" }}>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                  style={{ minHeight: "280px" }}
+                />
+                {/* Scanning guide overlay */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-64 h-24 border-2 border-white/70 rounded-lg" />
+                </div>
+              </div>
+
               <p className="text-sm text-muted-foreground text-center">
-                Point camera at barcode
+                Position barcode in the box, then tap capture
               </p>
-              <style jsx global>{`
-                #barcode-scanner-region {
-                  width: 100% !important;
-                  min-height: 280px !important;
-                }
-                #barcode-scanner-region video {
-                  object-fit: cover !important;
-                }
-                #barcode-scanner-region__scan_region {
-                  display: flex !important;
-                  align-items: center !important;
-                  justify-content: center !important;
-                }
-              `}</style>
-            </>
+
+              {/* Capture button */}
+              <div className="flex justify-center">
+                <button
+                  onClick={captureAndScan}
+                  className="w-16 h-16 rounded-full bg-white border-4 border-primary flex items-center justify-center hover:bg-gray-100 active:scale-95 transition-transform"
+                >
+                  <div className="w-12 h-12 rounded-full bg-primary" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Processing */}
+          {scanState.type === "processing" && (
+            <div className="py-8 text-center space-y-4">
+              <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
+              <p className="font-medium">Scanning barcode...</p>
+            </div>
+          )}
+
+          {/* No barcode found */}
+          {scanState.type === "no_barcode_found" && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-yellow-50 dark:bg-yellow-950 rounded-lg">
+                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                <div>
+                  <p className="font-medium text-yellow-900 dark:text-yellow-100">
+                    No Barcode Detected
+                  </p>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                    Make sure the barcode is clearly visible and well-lit
+                  </p>
+                </div>
+              </div>
+              <Button onClick={handleRetry} className="w-full">
+                Try Again
+              </Button>
+            </div>
           )}
 
           {/* Loading state */}
@@ -428,7 +362,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
               </div>
 
               <div className="flex gap-2">
-                <Button variant="outline" onClick={handleScanAgain} className="flex-1">
+                <Button variant="outline" onClick={handleRetry} className="flex-1">
                   Scan Another
                 </Button>
                 <Button onClick={handleAddFood} className="flex-1">
@@ -452,7 +386,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                   </p>
                 </div>
               </div>
-              <Button onClick={handleScanAgain} className="w-full">
+              <Button onClick={handleRetry} className="w-full">
                 Try Again
               </Button>
             </div>
@@ -470,7 +404,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                   </p>
                 </div>
               </div>
-              <Button onClick={handleScanAgain} className="w-full">
+              <Button onClick={handleRetry} className="w-full">
                 Try Again
               </Button>
             </div>
