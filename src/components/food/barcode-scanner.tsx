@@ -351,11 +351,26 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
             <>
               <div
                 ref={containerRef}
-                className="relative w-full aspect-[3/2] bg-black rounded-lg overflow-hidden"
+                className="relative w-full bg-black rounded-lg overflow-hidden flex items-center justify-center"
+                style={{ minHeight: "280px" }}
               />
               <p className="text-sm text-muted-foreground text-center">
                 Point camera at barcode
               </p>
+              <style jsx global>{`
+                #barcode-scanner-region {
+                  width: 100% !important;
+                  min-height: 280px !important;
+                }
+                #barcode-scanner-region video {
+                  object-fit: cover !important;
+                }
+                #barcode-scanner-region__scan_region {
+                  display: flex !important;
+                  align-items: center !important;
+                  justify-content: center !important;
+                }
+              `}</style>
             </>
           )}
 
