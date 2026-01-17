@@ -162,7 +162,16 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
 
   // Html5Qrcode fallback scanning
   const startHtml5Scanning = useCallback(async () => {
-    if (!scannerRegionRef.current) return;
+    // Set state to scanning FIRST so the element becomes visible
+    setScanState({ type: "scanning" });
+
+    // Wait for React to render the element
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    if (!scannerRegionRef.current) {
+      setScanState({ type: "error", message: "Scanner element not found" });
+      return;
+    }
 
     try {
       // Create a unique ID for the scanner region
@@ -180,8 +189,6 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
         useBarCodeDetectorIfSupported: true,
         verbose: false,
       });
-
-      setScanState({ type: "scanning" });
 
       await html5QrcodeRef.current.start(
         { facingMode: "environment" },
@@ -360,24 +367,33 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
             </div>
           )}
 
-          {/* Scanning - Html5Qrcode fallback */}
-          {scanState.type === "scanning" && !useNativeApi && (
-            <div className="space-y-3">
-              <div
-                ref={scannerRegionRef}
-                className="w-full rounded-lg overflow-hidden"
-                style={{ minHeight: "280px" }}
-              />
+          {/* Html5Qrcode scanner region - always in DOM */}
+          <div
+            className="space-y-3"
+            style={{
+              display: !useNativeApi && (scanState.type === "scanning" || scanState.type === "initializing") ? "block" : "none"
+            }}
+          >
+            <div
+              ref={scannerRegionRef}
+              className="w-full rounded-lg overflow-hidden"
+              style={{ minHeight: "280px" }}
+            />
+            {scanState.type === "scanning" && (
               <p className="text-sm text-muted-foreground text-center">
                 Point at a barcode - it will scan automatically
               </p>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Hidden video for native API (always rendered so ref is available) */}
-          {useNativeApi && scanState.type !== "scanning" && (
-            <video ref={videoRef} style={{ display: "none" }} />
-          )}
+          {/* Video for native API */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{ display: useNativeApi && scanState.type === "scanning" ? "block" : "none" }}
+          />
 
           {/* Loading state */}
           {scanState.type === "loading" && (
