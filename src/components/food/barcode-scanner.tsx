@@ -223,16 +223,16 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
           {/* Scanner viewport */}
           <div
             ref={scannerRef}
-            className="relative w-full rounded-lg overflow-hidden bg-black"
+            className="relative w-full rounded-lg overflow-hidden bg-black [&>video]:w-full [&>video]:h-full [&>video]:object-cover [&>canvas]:absolute [&>canvas]:inset-0 [&>canvas]:w-full [&>canvas]:h-full"
             style={{
-              minHeight: "300px",
+              height: "300px",
               display: scanState.type === "scanning" || scanState.type === "initializing" ? "block" : "none"
             }}
           >
             {/* Scanning overlay */}
             {scanState.type === "scanning" && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                <div className="w-64 h-20 border-2 border-white/80 rounded-lg">
+                <div className="w-64 h-20 border-2 border-white/80 rounded-lg relative">
                   <div className="absolute inset-x-0 h-0.5 bg-red-500 animate-pulse" style={{ top: "50%" }} />
                 </div>
               </div>
