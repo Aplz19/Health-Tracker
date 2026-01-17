@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +12,24 @@ import {
 import { Camera, X, Loader2, AlertCircle, Check, Settings } from "lucide-react";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
 
+// BarcodeDetector API types (not yet in lib.dom.d.ts)
+declare global {
+  interface BarcodeDetectorOptions {
+    formats: string[];
+  }
+  interface DetectedBarcode {
+    rawValue: string;
+    format: string;
+    boundingBox: DOMRectReadOnly;
+    cornerPoints: { x: number; y: number }[];
+  }
+  class BarcodeDetector {
+    constructor(options?: BarcodeDetectorOptions);
+    detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
+    static getSupportedFormats(): Promise<string[]>;
+  }
+}
+
 interface BarcodeScannerProps {
   open: boolean;
   onClose: () => void;
@@ -19,27 +37,42 @@ interface BarcodeScannerProps {
 }
 
 type ScanState =
-  | { type: "requesting_permission" }
-  | { type: "camera_ready" }
-  | { type: "processing" }
+  | { type: "initializing" }
+  | { type: "scanning" }
   | { type: "loading"; barcode: string }
   | { type: "found"; food: TransformedOFFFood }
   | { type: "not_found"; barcode: string }
-  | { type: "no_barcode_found" }
   | { type: "permission_denied" }
   | { type: "error"; message: string };
 
 export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerProps) {
-  const [scanState, setScanState] = useState<ScanState>({ type: "requesting_permission" });
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const [scanState, setScanState] = useState<ScanState>({ type: "initializing" });
+  const [useNativeApi, setUseNativeApi] = useState<boolean | null>(null);
 
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const detectorRef = useRef<BarcodeDetector | null>(null);
+  const scanningRef = useRef(false);
+  const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
+  const scannerRegionRef = useRef<HTMLDivElement>(null);
+
+  // Check for native BarcodeDetector support on mount
+  useEffect(() => {
+    const checkSupport = async () => {
+      if ("BarcodeDetector" in window) {
+        try {
+          const formats = await BarcodeDetector.getSupportedFormats();
+          if (formats.includes("ean_13") || formats.includes("upc_a")) {
+            setUseNativeApi(true);
+            return;
+          }
+        } catch {
+          // Fall through to false
+        }
+      }
+      setUseNativeApi(false);
+    };
+    checkSupport();
   }, []);
 
   const lookupBarcode = useCallback(async (barcode: string) => {
@@ -63,20 +96,14 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
     }
   }, []);
 
-  const startCamera = useCallback(async () => {
-    setScanState({ type: "requesting_permission" });
+  // Native BarcodeDetector continuous scanning
+  const startNativeScanning = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScanState({ type: "error", message: "Camera not supported" });
+      return;
+    }
 
     try {
-      // Check if mediaDevices is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setScanState({
-          type: "error",
-          message: "Camera not supported on this browser. Try using Safari on iOS."
-        });
-        return;
-      }
-
-      // Request camera access
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "environment",
@@ -87,89 +114,153 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
 
       streamRef.current = stream;
 
-      // Wait for video element to be ready
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
-        setScanState({ type: "camera_ready" });
       }
-    } catch (error) {
-      console.error("Camera error:", error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
 
-      if (errorMessage.includes("not allowed") ||
-          errorMessage.includes("Permission denied") ||
-          errorMessage.includes("NotAllowedError")) {
+      detectorRef.current = new BarcodeDetector({
+        formats: ["ean_13", "ean_8", "upc_a", "upc_e"]
+      });
+
+      scanningRef.current = true;
+      setScanState({ type: "scanning" });
+
+      const scanFrame = async () => {
+        if (!scanningRef.current || !videoRef.current || !detectorRef.current) return;
+
+        try {
+          const barcodes = await detectorRef.current.detect(videoRef.current);
+          if (barcodes.length > 0) {
+            scanningRef.current = false;
+            // Vibrate on success if available
+            if (navigator.vibrate) {
+              navigator.vibrate(100);
+            }
+            lookupBarcode(barcodes[0].rawValue);
+            return;
+          }
+        } catch {
+          // Frame not ready or detection failed, continue
+        }
+
+        if (scanningRef.current) {
+          requestAnimationFrame(scanFrame);
+        }
+      };
+
+      scanFrame();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("not allowed") || errorMessage.includes("Permission denied")) {
         setScanState({ type: "permission_denied" });
       } else {
         setScanState({ type: "error", message: errorMessage });
       }
     }
+  }, [lookupBarcode]);
+
+  // Html5Qrcode fallback scanning
+  const startHtml5Scanning = useCallback(async () => {
+    if (!scannerRegionRef.current) return;
+
+    try {
+      // Create a unique ID for the scanner region
+      const scannerId = "html5-scanner-region";
+      scannerRegionRef.current.id = scannerId;
+
+      // formatsToSupport goes in constructor config
+      html5QrcodeRef.current = new Html5Qrcode(scannerId, {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+        ],
+        useBarCodeDetectorIfSupported: true,
+        verbose: false,
+      });
+
+      setScanState({ type: "scanning" });
+
+      await html5QrcodeRef.current.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 100 },
+          aspectRatio: 16 / 9,
+        },
+        (decodedText) => {
+          // Success - vibrate and lookup
+          if (navigator.vibrate) {
+            navigator.vibrate(100);
+          }
+          html5QrcodeRef.current?.stop().catch(() => {});
+          lookupBarcode(decodedText);
+        },
+        () => {
+          // No barcode found in this frame - continue scanning
+        }
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("not allowed") || errorMessage.includes("Permission denied")) {
+        setScanState({ type: "permission_denied" });
+      } else {
+        setScanState({ type: "error", message: errorMessage });
+      }
+    }
+  }, [lookupBarcode]);
+
+  const stopScanning = useCallback(() => {
+    scanningRef.current = false;
+
+    // Stop native camera stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    // Stop html5-qrcode
+    if (html5QrcodeRef.current) {
+      html5QrcodeRef.current.stop().catch(() => {});
+      html5QrcodeRef.current = null;
+    }
   }, []);
 
-  const captureAndScan = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const startScanning = useCallback(() => {
+    if (useNativeApi === null) return; // Still checking support
 
-    setScanState({ type: "processing" });
+    setScanState({ type: "initializing" });
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) {
-      setScanState({ type: "error", message: "Could not get canvas context" });
-      return;
-    }
-
-    // Set canvas size to match video
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    // Draw the current video frame to canvas
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Convert to blob for scanning
-    canvas.toBlob(async (blob) => {
-      if (!blob) {
-        setScanState({ type: "error", message: "Could not capture image" });
-        return;
-      }
-
-      try {
-        // Create a file from the blob
-        const file = new File([blob], "capture.png", { type: "image/png" });
-
-        // Use Html5Qrcode to scan the file
-        const html5Qrcode = new Html5Qrcode("temp-scanner");
-
-        const result = await html5Qrcode.scanFile(file, true);
-
-        // Clean up
-        html5Qrcode.clear();
-
-        // Stop camera and lookup the barcode
-        stopCamera();
-        lookupBarcode(result);
-      } catch (error) {
-        console.error("Scan error:", error);
-        // No barcode found in the image
-        setScanState({ type: "no_barcode_found" });
-      }
-    }, "image/png");
-  }, [stopCamera, lookupBarcode]);
-
-  // Start camera when dialog opens
-  useEffect(() => {
-    if (open) {
-      startCamera();
+    if (useNativeApi) {
+      startNativeScanning();
     } else {
-      stopCamera();
+      startHtml5Scanning();
     }
-    return () => stopCamera();
-  }, [open, startCamera, stopCamera]);
+  }, [useNativeApi, startNativeScanning, startHtml5Scanning]);
+
+  // Start scanning when dialog opens
+  useEffect(() => {
+    if (open && useNativeApi !== null) {
+      startScanning();
+    }
+
+    return () => {
+      if (!open) {
+        stopScanning();
+      }
+    };
+  }, [open, useNativeApi, startScanning, stopScanning]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => stopScanning();
+  }, [stopScanning]);
 
   const handleRetry = () => {
-    startCamera();
+    stopScanning();
+    startScanning();
   };
 
   const handleAddFood = () => {
@@ -179,8 +270,13 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
     }
   };
 
+  const handleClose = () => {
+    stopScanning();
+    onClose();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -190,25 +286,11 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Hidden temp element for scanner */}
-          <div id="temp-scanner" style={{ display: "none" }} />
-
-          {/* Hidden canvas for capture */}
-          <canvas ref={canvasRef} style={{ display: "none" }} />
-
-          {/* Requesting permission */}
-          {scanState.type === "requesting_permission" && (
+          {/* Initializing */}
+          {scanState.type === "initializing" && (
             <div className="py-12 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <Camera className="h-8 w-8 text-primary" />
-              </div>
-              <div>
-                <p className="font-medium">Camera Access Required</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Please allow camera access when prompted
-                </p>
-              </div>
-              <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <p className="text-sm text-muted-foreground">Starting camera...</p>
             </div>
           )}
 
@@ -222,7 +304,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                     Camera Access Blocked
                   </p>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    Camera permission was denied. To use the barcode scanner:
+                    Camera permission was denied.
                   </p>
                 </div>
               </div>
@@ -231,7 +313,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                 <p className="font-medium">On iPhone/iPad:</p>
                 <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
                   <li>Open Settings → Safari → Camera</li>
-                  <li>Set to "Ask" or "Allow"</li>
+                  <li>Set to &quot;Ask&quot; or &quot;Allow&quot;</li>
                   <li>Return here and try again</li>
                 </ol>
               </div>
@@ -240,7 +322,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                 <p className="font-medium">On Android:</p>
                 <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
                   <li>Tap the lock icon in the address bar</li>
-                  <li>Tap "Permissions" or "Site settings"</li>
+                  <li>Tap &quot;Permissions&quot; or &quot;Site settings&quot;</li>
                   <li>Enable Camera access</li>
                 </ol>
               </div>
@@ -252,64 +334,49 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
             </div>
           )}
 
-          {/* Camera feed with capture button - always rendered but hidden when not ready */}
-          <div className={scanState.type === "camera_ready" ? "space-y-4" : "hidden"}>
-            <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ minHeight: "280px" }}>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-                style={{ minHeight: "280px" }}
-              />
-              {/* Scanning guide overlay */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-64 h-24 border-2 border-white/70 rounded-lg" />
+          {/* Scanning - Native API */}
+          {scanState.type === "scanning" && useNativeApi && (
+            <div className="space-y-3">
+              <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ minHeight: "280px" }}>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                  style={{ minHeight: "280px" }}
+                />
+                {/* Scanning guide overlay */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-64 h-20 border-2 border-white/80 rounded-lg relative">
+                    {/* Animated scanning line */}
+                    <div className="absolute inset-x-0 h-0.5 bg-primary animate-pulse" style={{ top: "50%" }} />
+                  </div>
+                </div>
               </div>
-            </div>
-
-            <p className="text-sm text-muted-foreground text-center">
-              Position barcode in the box, then tap capture
-            </p>
-
-            {/* Capture button */}
-            <div className="flex justify-center">
-              <button
-                onClick={captureAndScan}
-                className="w-16 h-16 rounded-full bg-white border-4 border-primary flex items-center justify-center hover:bg-gray-100 active:scale-95 transition-transform"
-              >
-                <div className="w-12 h-12 rounded-full bg-primary" />
-              </button>
-            </div>
-          </div>
-
-          {/* Processing */}
-          {scanState.type === "processing" && (
-            <div className="py-8 text-center space-y-4">
-              <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
-              <p className="font-medium">Scanning barcode...</p>
+              <p className="text-sm text-muted-foreground text-center">
+                Point at a barcode - it will scan automatically
+              </p>
             </div>
           )}
 
-          {/* No barcode found */}
-          {scanState.type === "no_barcode_found" && (
-            <div className="space-y-4">
-              <div className="flex items-start gap-3 p-4 bg-yellow-50 dark:bg-yellow-950 rounded-lg">
-                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                <div>
-                  <p className="font-medium text-yellow-900 dark:text-yellow-100">
-                    No Barcode Detected
-                  </p>
-                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                    Make sure the barcode is clearly visible and well-lit
-                  </p>
-                </div>
-              </div>
-              <Button onClick={handleRetry} className="w-full">
-                Try Again
-              </Button>
+          {/* Scanning - Html5Qrcode fallback */}
+          {scanState.type === "scanning" && !useNativeApi && (
+            <div className="space-y-3">
+              <div
+                ref={scannerRegionRef}
+                className="w-full rounded-lg overflow-hidden"
+                style={{ minHeight: "280px" }}
+              />
+              <p className="text-sm text-muted-foreground text-center">
+                Point at a barcode - it will scan automatically
+              </p>
             </div>
+          )}
+
+          {/* Hidden video for native API (always rendered so ref is available) */}
+          {useNativeApi && scanState.type !== "scanning" && (
+            <video ref={videoRef} style={{ display: "none" }} />
           )}
 
           {/* Loading state */}
@@ -385,7 +452,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                 </div>
               </div>
               <Button onClick={handleRetry} className="w-full">
-                Try Again
+                Scan Another
               </Button>
             </div>
           )}
