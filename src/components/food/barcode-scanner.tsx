@@ -252,39 +252,37 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
             </div>
           )}
 
-          {/* Camera ready - show video feed with capture button */}
-          {scanState.type === "camera_ready" && (
-            <div className="space-y-4">
-              <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ minHeight: "280px" }}>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover"
-                  style={{ minHeight: "280px" }}
-                />
-                {/* Scanning guide overlay */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-64 h-24 border-2 border-white/70 rounded-lg" />
-                </div>
-              </div>
-
-              <p className="text-sm text-muted-foreground text-center">
-                Position barcode in the box, then tap capture
-              </p>
-
-              {/* Capture button */}
-              <div className="flex justify-center">
-                <button
-                  onClick={captureAndScan}
-                  className="w-16 h-16 rounded-full bg-white border-4 border-primary flex items-center justify-center hover:bg-gray-100 active:scale-95 transition-transform"
-                >
-                  <div className="w-12 h-12 rounded-full bg-primary" />
-                </button>
+          {/* Camera feed with capture button - always rendered but hidden when not ready */}
+          <div className={scanState.type === "camera_ready" ? "space-y-4" : "hidden"}>
+            <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ minHeight: "280px" }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+                style={{ minHeight: "280px" }}
+              />
+              {/* Scanning guide overlay */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-64 h-24 border-2 border-white/70 rounded-lg" />
               </div>
             </div>
-          )}
+
+            <p className="text-sm text-muted-foreground text-center">
+              Position barcode in the box, then tap capture
+            </p>
+
+            {/* Capture button */}
+            <div className="flex justify-center">
+              <button
+                onClick={captureAndScan}
+                className="w-16 h-16 rounded-full bg-white border-4 border-primary flex items-center justify-center hover:bg-gray-100 active:scale-95 transition-transform"
+              >
+                <div className="w-12 h-12 rounded-full bg-primary" />
+              </button>
+            </div>
+          </div>
 
           {/* Processing */}
           {scanState.type === "processing" && (
