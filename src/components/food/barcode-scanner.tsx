@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import Quagga from "@ericblade/quagga2";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,24 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Camera, X, Loader2, AlertCircle, Check, Settings } from "lucide-react";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
-
-// BarcodeDetector API types (not yet in lib.dom.d.ts)
-declare global {
-  interface BarcodeDetectorOptions {
-    formats: string[];
-  }
-  interface DetectedBarcode {
-    rawValue: string;
-    format: string;
-    boundingBox: DOMRectReadOnly;
-    cornerPoints: { x: number; y: number }[];
-  }
-  class BarcodeDetector {
-    constructor(options?: BarcodeDetectorOptions);
-    detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
-    static getSupportedFormats(): Promise<string[]>;
-  }
-}
 
 interface BarcodeScannerProps {
   open: boolean;
@@ -47,33 +29,8 @@ type ScanState =
 
 export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerProps) {
   const [scanState, setScanState] = useState<ScanState>({ type: "initializing" });
-  const [useNativeApi, setUseNativeApi] = useState<boolean | null>(null);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const detectorRef = useRef<BarcodeDetector | null>(null);
-  const scanningRef = useRef(false);
-  const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
-  const scannerRegionRef = useRef<HTMLDivElement>(null);
-
-  // Check for native BarcodeDetector support on mount
-  useEffect(() => {
-    const checkSupport = async () => {
-      if ("BarcodeDetector" in window) {
-        try {
-          const formats = await BarcodeDetector.getSupportedFormats();
-          if (formats.includes("ean_13") || formats.includes("upc_a")) {
-            setUseNativeApi(true);
-            return;
-          }
-        } catch {
-          // Fall through to false
-        }
-      }
-      setUseNativeApi(false);
-    };
-    checkSupport();
-  }, []);
+  const scannerRef = useRef<HTMLDivElement>(null);
+  const hasStartedRef = useRef(false);
 
   const lookupBarcode = useCallback(async (barcode: string) => {
     setScanState({ type: "loading", barcode });
@@ -96,178 +53,109 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
     }
   }, []);
 
-  // Native BarcodeDetector continuous scanning
-  const startNativeScanning = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setScanState({ type: "error", message: "Camera not supported" });
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      });
-
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-
-      detectorRef.current = new BarcodeDetector({
-        formats: ["ean_13", "ean_8", "upc_a", "upc_e"]
-      });
-
-      scanningRef.current = true;
-      setScanState({ type: "scanning" });
-
-      const scanFrame = async () => {
-        if (!scanningRef.current || !videoRef.current || !detectorRef.current) return;
-
-        try {
-          const barcodes = await detectorRef.current.detect(videoRef.current);
-          if (barcodes.length > 0) {
-            scanningRef.current = false;
-            // Vibrate on success if available
-            if (navigator.vibrate) {
-              navigator.vibrate(100);
-            }
-            lookupBarcode(barcodes[0].rawValue);
-            return;
-          }
-        } catch {
-          // Frame not ready or detection failed, continue
-        }
-
-        if (scanningRef.current) {
-          requestAnimationFrame(scanFrame);
-        }
-      };
-
-      scanFrame();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("not allowed") || errorMessage.includes("Permission denied")) {
-        setScanState({ type: "permission_denied" });
-      } else {
-        setScanState({ type: "error", message: errorMessage });
-      }
-    }
-  }, [lookupBarcode]);
-
-  // Html5Qrcode fallback scanning
-  const startHtml5Scanning = useCallback(async () => {
-    // Set state to scanning FIRST so the element becomes visible
-    setScanState({ type: "scanning" });
-
-    // Wait for React to render the element
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    if (!scannerRegionRef.current) {
-      setScanState({ type: "error", message: "Scanner element not found" });
-      return;
-    }
-
-    try {
-      // Create a unique ID for the scanner region
-      const scannerId = "html5-scanner-region";
-      scannerRegionRef.current.id = scannerId;
-
-      // formatsToSupport goes in constructor config
-      html5QrcodeRef.current = new Html5Qrcode(scannerId, {
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-        ],
-        useBarCodeDetectorIfSupported: true,
-        verbose: false,
-      });
-
-      await html5QrcodeRef.current.start(
-        { facingMode: "environment" },
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 100 },
-          aspectRatio: 16 / 9,
-        },
-        (decodedText) => {
-          // Success - vibrate and lookup
-          if (navigator.vibrate) {
-            navigator.vibrate(100);
-          }
-          html5QrcodeRef.current?.stop().catch(() => {});
-          lookupBarcode(decodedText);
-        },
-        () => {
-          // No barcode found in this frame - continue scanning
-        }
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("not allowed") || errorMessage.includes("Permission denied")) {
-        setScanState({ type: "permission_denied" });
-      } else {
-        setScanState({ type: "error", message: errorMessage });
-      }
-    }
-  }, [lookupBarcode]);
-
-  const stopScanning = useCallback(() => {
-    scanningRef.current = false;
-
-    // Stop native camera stream
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-
-    // Stop html5-qrcode
-    if (html5QrcodeRef.current) {
-      html5QrcodeRef.current.stop().catch(() => {});
-      html5QrcodeRef.current = null;
-    }
+  const stopScanner = useCallback(() => {
+    Quagga.stop();
+    hasStartedRef.current = false;
   }, []);
 
-  const startScanning = useCallback(() => {
-    if (useNativeApi === null) return; // Still checking support
+  const startScanner = useCallback(async () => {
+    if (!scannerRef.current || hasStartedRef.current) return;
 
     setScanState({ type: "initializing" });
 
-    if (useNativeApi) {
-      startNativeScanning();
-    } else {
-      startHtml5Scanning();
-    }
-  }, [useNativeApi, startNativeScanning, startHtml5Scanning]);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        Quagga.init(
+          {
+            inputStream: {
+              type: "LiveStream",
+              target: scannerRef.current!,
+              constraints: {
+                facingMode: "environment",
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              },
+            },
+            decoder: {
+              readers: [
+                "ean_reader",
+                "ean_8_reader",
+                "upc_reader",
+                "upc_e_reader",
+              ],
+            },
+            locate: true,
+            locator: {
+              patchSize: "medium",
+              halfSample: true,
+            },
+          },
+          (err) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve();
+          }
+        );
+      });
 
-  // Start scanning when dialog opens
-  useEffect(() => {
-    if (open && useNativeApi !== null) {
-      startScanning();
-    }
+      hasStartedRef.current = true;
+      setScanState({ type: "scanning" });
 
-    return () => {
-      if (!open) {
-        stopScanning();
+      Quagga.start();
+
+      // Set up detection handler
+      Quagga.onDetected((result) => {
+        if (result?.codeResult?.code) {
+          const code = result.codeResult.code;
+
+          // Vibrate on success
+          if (navigator.vibrate) {
+            navigator.vibrate(100);
+          }
+
+          stopScanner();
+          lookupBarcode(code);
+        }
+      });
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      if (errorMessage.includes("NotAllowed") ||
+          errorMessage.includes("Permission") ||
+          errorMessage.includes("not allowed")) {
+        setScanState({ type: "permission_denied" });
+      } else {
+        setScanState({ type: "error", message: errorMessage });
       }
-    };
-  }, [open, useNativeApi, startScanning, stopScanning]);
+    }
+  }, [lookupBarcode, stopScanner]);
+
+  // Start scanner when dialog opens
+  useEffect(() => {
+    if (open) {
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        startScanner();
+      }, 200);
+      return () => clearTimeout(timer);
+    } else {
+      stopScanner();
+    }
+  }, [open, startScanner, stopScanner]);
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => stopScanning();
-  }, [stopScanning]);
+    return () => {
+      stopScanner();
+    };
+  }, [stopScanner]);
 
   const handleRetry = () => {
-    stopScanning();
-    startScanning();
+    stopScanner();
+    setTimeout(() => startScanner(), 100);
   };
 
   const handleAddFood = () => {
@@ -278,7 +166,7 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
   };
 
   const handleClose = () => {
-    stopScanning();
+    stopScanner();
     onClose();
   };
 
@@ -325,15 +213,6 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                 </ol>
               </div>
 
-              <div className="text-sm space-y-2 px-1">
-                <p className="font-medium">On Android:</p>
-                <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                  <li>Tap the lock icon in the address bar</li>
-                  <li>Tap &quot;Permissions&quot; or &quot;Site settings&quot;</li>
-                  <li>Enable Camera access</li>
-                </ol>
-              </div>
-
               <Button onClick={handleRetry} className="w-full">
                 <Camera className="h-4 w-4 mr-2" />
                 Try Again
@@ -341,59 +220,30 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
             </div>
           )}
 
-          {/* Scanning - Native API */}
-          {scanState.type === "scanning" && useNativeApi && (
-            <div className="space-y-3">
-              <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ minHeight: "280px" }}>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover"
-                  style={{ minHeight: "280px" }}
-                />
-                {/* Scanning guide overlay */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-64 h-20 border-2 border-white/80 rounded-lg relative">
-                    {/* Animated scanning line */}
-                    <div className="absolute inset-x-0 h-0.5 bg-primary animate-pulse" style={{ top: "50%" }} />
-                  </div>
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground text-center">
-                Point at a barcode - it will scan automatically
-              </p>
-            </div>
-          )}
-
-          {/* Html5Qrcode scanner region - always in DOM */}
+          {/* Scanner viewport */}
           <div
-            className="space-y-3"
+            ref={scannerRef}
+            className="relative w-full rounded-lg overflow-hidden bg-black"
             style={{
-              display: !useNativeApi && (scanState.type === "scanning" || scanState.type === "initializing") ? "block" : "none"
+              minHeight: "300px",
+              display: scanState.type === "scanning" || scanState.type === "initializing" ? "block" : "none"
             }}
           >
-            <div
-              ref={scannerRegionRef}
-              className="w-full rounded-lg overflow-hidden"
-              style={{ minHeight: "280px" }}
-            />
+            {/* Scanning overlay */}
             {scanState.type === "scanning" && (
-              <p className="text-sm text-muted-foreground text-center">
-                Point at a barcode - it will scan automatically
-              </p>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                <div className="w-64 h-20 border-2 border-white/80 rounded-lg">
+                  <div className="absolute inset-x-0 h-0.5 bg-red-500 animate-pulse" style={{ top: "50%" }} />
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Video for native API */}
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{ display: useNativeApi && scanState.type === "scanning" ? "block" : "none" }}
-          />
+          {scanState.type === "scanning" && (
+            <p className="text-sm text-muted-foreground text-center">
+              Point at a barcode - it will scan automatically
+            </p>
+          )}
 
           {/* Loading state */}
           {scanState.type === "loading" && (
@@ -507,15 +357,12 @@ function transformOFFProduct(product: {
 }, barcode: string): TransformedOFFFood {
   const n = product.nutriments || {};
 
-  // Get product name
   let name = product.product_name_en || product.product_name || "Unknown Product";
 
-  // Add brand if available
   if (product.brands && !name.toLowerCase().includes(product.brands.toLowerCase())) {
     name = `${product.brands} ${name}`;
   }
 
-  // Determine serving size
   let servingSize = "100g";
   let servingSizeGrams: number | null = 100;
 
@@ -524,7 +371,6 @@ function transformOFFProduct(product: {
     servingSizeGrams = product.serving_quantity || parseServingGrams(product.serving_size);
   }
 
-  // Use per-serving values if available, otherwise per 100g
   const hasServingData = n["energy-kcal_serving"] !== undefined;
 
   let calories: number;
