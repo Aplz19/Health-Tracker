@@ -9,15 +9,11 @@ import { WhoopConnectButton } from "@/components/whoop/connect-button";
 import { RecoveryCard } from "@/components/whoop/recovery-card";
 import { SleepCard } from "@/components/whoop/sleep-card";
 import { StrainCard } from "@/components/whoop/strain-card";
-import { Loader2, History } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { Loader2 } from "lucide-react";
 
 export function WhoopTab() {
   const { selectedDate } = useDate();
   const dateString = format(selectedDate, "yyyy-MM-dd");
-  const [isSyncingHistory, setIsSyncingHistory] = useState(false);
-  const [historySyncResult, setHistorySyncResult] = useState<string | null>(null);
 
   const {
     isConnected,
@@ -34,29 +30,6 @@ export function WhoopTab() {
     error,
     sync,
   } = useWhoopData(dateString);
-
-  const syncHistoricalData = async () => {
-    setIsSyncingHistory(true);
-    setHistorySyncResult(null);
-    try {
-      // Sync from August 2025 to now (~160 days)
-      const response = await fetch("/api/whoop/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ days: 180 }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setHistorySyncResult(`Synced ${result.synced} days of data`);
-      } else {
-        setHistorySyncResult(`Error: ${result.error}`);
-      }
-    } catch (err) {
-      setHistorySyncResult("Failed to sync historical data");
-    } finally {
-      setIsSyncingHistory(false);
-    }
-  };
 
   // Check for OAuth callback params
   useEffect(() => {
@@ -149,52 +122,15 @@ export function WhoopTab() {
           />
 
           {/* Actions */}
-          <div className="space-y-3 pt-2">
-            <div className="flex justify-center">
-              <WhoopConnectButton
-                isConnected={true}
-                isLoading={isStatusLoading}
-                isSyncing={isSyncing}
-                onConnect={connect}
-                onDisconnect={disconnect}
-                onSync={() => sync(7)}
-              />
-            </div>
-
-            {/* Sync Historical Data */}
-            <div className="rounded-lg border bg-muted/30 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Sync Historical Data</p>
-                  <p className="text-xs text-muted-foreground">
-                    Load last 6 months of Whoop data
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={syncHistoricalData}
-                  disabled={isSyncingHistory}
-                >
-                  {isSyncingHistory ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Syncing...
-                    </>
-                  ) : (
-                    <>
-                      <History className="h-4 w-4 mr-2" />
-                      Sync History
-                    </>
-                  )}
-                </Button>
-              </div>
-              {historySyncResult && (
-                <p className={`text-xs mt-2 ${historySyncResult.startsWith("Error") ? "text-red-500" : "text-green-500"}`}>
-                  {historySyncResult}
-                </p>
-              )}
-            </div>
+          <div className="flex justify-center pt-2">
+            <WhoopConnectButton
+              isConnected={true}
+              isLoading={isStatusLoading}
+              isSyncing={isSyncing}
+              onConnect={connect}
+              onDisconnect={disconnect}
+              onSync={() => sync(7)}
+            />
           </div>
         </>
       )}
