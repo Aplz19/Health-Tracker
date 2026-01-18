@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase/client";
+import { getServerSupabase } from "@/lib/supabase/server";
 import type {
   DailySummaryData,
   DailySummaryTotals,
@@ -21,6 +21,8 @@ function formatTime(hour: number, minute: number, isPm: boolean): string {
 
 // Fetch and aggregate all data for a specific date and user
 export async function aggregateDailyData(date: string, userId: string): Promise<DailySummaryData> {
+  const supabase = getServerSupabase();
+
   // Fetch all data in parallel
   const [
     mealsResult,
@@ -234,6 +236,7 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
 
 // Save aggregated data to daily_summaries table
 export async function saveDailySummary(date: string, userId: string, data: DailySummaryData) {
+  const supabase = getServerSupabase();
   const { error } = await supabase
     .from("daily_summaries")
     .upsert(
@@ -258,6 +261,7 @@ export async function syncDailySummary(date: string, userId: string): Promise<Da
 
 // Helper to get current user and sync (for use in hooks/components)
 export async function syncDailySummaryForCurrentUser(date: string): Promise<DailySummaryData | null> {
+  const supabase = getServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
   return syncDailySummary(date, user.id);

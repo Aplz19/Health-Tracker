@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { syncDailySummary } from "@/lib/daily-summary/aggregate";
-import { supabase } from "@/lib/supabase/client";
+import { getServerSupabase } from "@/lib/supabase/server";
 
 // Helper to get user from request cookies
 async function getUserFromRequest(request: NextRequest) {
@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const supabase = getServerSupabase();
     const { data, error } = await supabase
       .from("daily_summaries")
       .select("*")

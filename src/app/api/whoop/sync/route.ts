@@ -10,9 +10,11 @@ import {
 import type { WhoopRecovery, WhoopSleep } from "@/lib/whoop/types";
 
 function getSupabase() {
+  // Use service role key for server operations (bypasses RLS)
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 }
 
