@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
-import type { TreadmillSession } from "@/lib/supabase/types";
+import type { TreadmillSession, CardioExerciseType } from "@/lib/supabase/types";
 
 export function useTreadmill(date: string) {
   const [sessions, setSessions] = useState<TreadmillSession[]>([]);
@@ -32,10 +32,10 @@ export function useTreadmill(date: string) {
     }
   }, [date]);
 
-  const addSession = async (data: {
-    duration_minutes: number;
-    incline: number;
-    speed: number;
+  const addSession = async (exerciseType: CardioExerciseType, data?: {
+    duration_minutes?: number;
+    incline?: number;
+    speed?: number;
     notes?: string | null;
   }) => {
     setError(null);
@@ -48,10 +48,11 @@ export function useTreadmill(date: string) {
         .insert({
           user_id: user.id,
           date,
-          duration_minutes: data.duration_minutes,
-          incline: data.incline,
-          speed: data.speed,
-          notes: data.notes || null,
+          exercise_type: exerciseType,
+          duration_minutes: data?.duration_minutes ?? 30,
+          incline: data?.incline ?? 0,
+          speed: data?.speed ?? 3.0,
+          notes: data?.notes || null,
         })
         .select()
         .single();
@@ -60,7 +61,7 @@ export function useTreadmill(date: string) {
       setSessions((prev) => [...prev, newSession as TreadmillSession]);
       return newSession;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to add treadmill session";
+      const message = err instanceof Error ? err.message : "Failed to add cardio session";
       setError(message);
       throw err;
     }

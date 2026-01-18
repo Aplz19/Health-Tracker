@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { useExerciseLogs } from "@/hooks/use-exercise-logs";
 import { useTreadmill } from "@/hooks/use-treadmill";
 import { ExercisePickerDialog } from "@/components/exercise/exercise-picker-dialog";
-import { TreadmillSection } from "@/components/workout/treadmill-section";
+import { CardioSection } from "@/components/workout/cardio-section";
 import { CATEGORY_LABELS } from "@/lib/exercise-categories";
 import type { ExerciseLogWithDetails, ExerciseSetWithDetails } from "@/hooks/use-exercise-logs";
+import type { CardioExerciseType } from "@/lib/supabase/types";
 
 // Individual set row component
 function SetRow({
@@ -207,20 +208,16 @@ export function WorkoutTab() {
   const { logs, isLoading, addLog, deleteLog, addSet, updateSet, deleteSet } =
     useExerciseLogs(dateString);
   const {
-    sessions: treadmillSessions,
-    isLoading: isTreadmillLoading,
-    addSession: addTreadmillSession,
-    updateSession: updateTreadmillSession,
-    deleteSession: deleteTreadmillSession,
+    sessions: cardioSessions,
+    isLoading: isCardioLoading,
+    addSession: addCardioSession,
+    updateSession: updateCardioSession,
+    deleteSession: deleteCardioSession,
   } = useTreadmill(dateString);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  const handleAddTreadmillSession = async () => {
-    await addTreadmillSession({
-      duration_minutes: 30,
-      incline: 0,
-      speed: 3.0,
-    });
+  const handleAddCardioSession = async (exerciseType: CardioExerciseType) => {
+    await addCardioSession(exerciseType);
   };
 
   return (
@@ -291,13 +288,13 @@ export function WorkoutTab() {
         </Button>
       )}
 
-      {/* Treadmill Section */}
-      <TreadmillSection
-        sessions={treadmillSessions}
-        isLoading={isTreadmillLoading}
-        onAdd={handleAddTreadmillSession}
-        onUpdate={updateTreadmillSession}
-        onDelete={deleteTreadmillSession}
+      {/* Cardio Section */}
+      <CardioSection
+        sessions={cardioSessions}
+        isLoading={isCardioLoading}
+        onAdd={handleAddCardioSession}
+        onUpdate={updateCardioSession}
+        onDelete={deleteCardioSession}
       />
 
       {/* Exercise Picker Dialog */}

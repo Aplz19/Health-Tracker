@@ -107,10 +107,19 @@ export interface ExerciseSet {
   created_at: string;
 }
 
+// Cardio exercise types - stored in treadmill_sessions.exercise_type column
+export type CardioExerciseType = "treadmill" | "treadmill_backwards";
+
+export const CARDIO_EXERCISES: { type: CardioExerciseType; name: string }[] = [
+  { type: "treadmill", name: "Treadmill" },
+  { type: "treadmill_backwards", name: "Treadmill Backwards Walking" },
+];
+
 export interface TreadmillSession {
   id: string;
   user_id: string;
   date: string;
+  exercise_type: CardioExerciseType;
   duration_minutes: number;
   incline: number;
   speed: number;
