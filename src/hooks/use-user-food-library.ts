@@ -68,22 +68,48 @@ export function useUserFoodLibrary(searchQuery: string = "") {
 
   // Add a food to the user's personal library
   // If it's a new food (FoodInsert), create it in global cache first
+  // If a food with the same barcode exists, reuse it instead of creating a duplicate
   const addToLibrary = async (food: Food | FoodInsert): Promise<Food> => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Not authenticated");
 
     let savedFood: Food;
 
-    // If it's a new food (no id), insert into global foods table first
+    // If it's a new food (no id), check for existing barcode first
     if (!("id" in food)) {
-      const { data, error } = await supabase
-        .from("foods")
-        .insert(food)
-        .select()
-        .single();
+      // Check if a food with this barcode already exists in global library
+      if (food.barcode) {
+        const { data: existingByBarcode } = await supabase
+          .from("foods")
+          .select("*")
+          .eq("barcode", food.barcode)
+          .single();
 
-      if (error) throw error;
-      savedFood = data as Food;
+        if (existingByBarcode) {
+          // Reuse existing food entry
+          savedFood = existingByBarcode as Food;
+        } else {
+          // Create new food entry
+          const { data, error } = await supabase
+            .from("foods")
+            .insert(food)
+            .select()
+            .single();
+
+          if (error) throw error;
+          savedFood = data as Food;
+        }
+      } else {
+        // No barcode, create new entry
+        const { data, error } = await supabase
+          .from("foods")
+          .insert(food)
+          .select()
+          .single();
+
+        if (error) throw error;
+        savedFood = data as Food;
+      }
     } else {
       savedFood = food;
     }

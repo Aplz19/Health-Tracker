@@ -10,11 +10,16 @@ import type {
 
 const WHOOP_API_BASE = "https://api.prod.whoop.com";
 
-// Server-side Supabase client
+// Server-side Supabase client with service role (bypasses RLS)
 function getSupabase() {
+  // Use service role key for server operations - required to write to whoop_tokens
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) {
+    console.warn("SUPABASE_SERVICE_ROLE_KEY not set, falling back to anon key");
+  }
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    serviceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 }
 
@@ -42,8 +47,10 @@ export async function storeTokens(
   const supabase = getSupabase();
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
+  console.log("[Whoop] Storing tokens for user:", userId);
+
   // Upsert tokens for this user
-  await supabase.from("whoop_tokens").upsert(
+  const { error } = await supabase.from("whoop_tokens").upsert(
     {
       user_id: userId,
       access_token: accessToken,
@@ -54,6 +61,13 @@ export async function storeTokens(
     },
     { onConflict: "user_id" }
   );
+
+  if (error) {
+    console.error("[Whoop] Failed to store tokens:", error);
+    throw new Error(`Failed to store Whoop tokens: ${error.message}`);
+  }
+
+  console.log("[Whoop] Tokens stored successfully");
 }
 
 // Delete tokens for a specific user
