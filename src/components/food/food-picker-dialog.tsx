@@ -48,18 +48,61 @@ function addRecentFoodId(foodId: string): void {
 interface ParsedServing {
   amount: number;
   unit: string;
+  gramsPerUnit: number; // How many grams per 1 of this unit
 }
 
-// Parse serving size to extract amount and unit (e.g., "250g" → {amount: 250, unit: "g"})
-function parseServingSize(servingSize: string): ParsedServing | null {
-  // Match patterns like "250g", "100 grams", "1 cup", "2 oz", "1.5 tbsp", "100ml"
-  const match = servingSize.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)/);
-  if (match) {
+// Weight/volume units and their conversion to grams (or ml for liquids)
+const UNIT_TO_GRAMS: Record<string, number> = {
+  g: 1,
+  gram: 1,
+  grams: 1,
+  oz: 28.35,
+  ounce: 28.35,
+  ounces: 28.35,
+  lb: 453.6,
+  lbs: 453.6,
+  pound: 453.6,
+  pounds: 453.6,
+  kg: 1000,
+  ml: 1, // Treat ml as grams (water density)
+  l: 1000,
+  liter: 1000,
+  liters: 1000,
+};
+
+// Units we support for custom tracking (weight/volume only)
+const TRACKABLE_UNITS = ['g', 'gram', 'grams', 'oz', 'ounce', 'ounces', 'lb', 'lbs', 'pound', 'pounds', 'kg', 'ml', 'l', 'liter', 'liters'];
+
+// Parse serving size to find a trackable weight/volume unit
+function parseServingSize(servingSize: string, servingSizeGrams: number | null): ParsedServing | null {
+  const lowerServing = servingSize.toLowerCase();
+
+  // Try to find a weight/volume unit anywhere in the string
+  // Patterns: "100g", "5 oz", "16 grams", "(16g)", "100 ml"
+  for (const unit of TRACKABLE_UNITS) {
+    // Match number followed by unit (with optional space)
+    const regex = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${unit}(?:\\s|\\)|$|,)`, 'i');
+    const match = lowerServing.match(regex);
+    if (match) {
+      const amount = parseFloat(match[1]);
+      const gramsPerUnit = UNIT_TO_GRAMS[unit] || 1;
+      return {
+        amount,
+        unit: unit.replace(/s$/, ''), // Normalize plural to singular
+        gramsPerUnit,
+      };
+    }
+  }
+
+  // If no unit found but we have serving_size_grams, offer grams option
+  if (servingSizeGrams && servingSizeGrams > 0) {
     return {
-      amount: parseFloat(match[1]),
-      unit: match[2].toLowerCase(),
+      amount: servingSizeGrams,
+      unit: 'g',
+      gramsPerUnit: 1,
     };
   }
+
   return null;
 }
 
@@ -67,33 +110,34 @@ function parseServingSize(servingSize: string): ParsedServing | null {
 function getUnitDisplayName(unit: string): string {
   const unitNames: Record<string, string> = {
     g: "Grams",
-    grams: "Grams",
     gram: "Grams",
     oz: "Ounces",
     ounce: "Ounces",
-    ounces: "Ounces",
-    cup: "Cups",
-    cups: "Cups",
-    tbsp: "Tablespoons",
-    tablespoon: "Tablespoons",
-    tablespoons: "Tablespoons",
-    tsp: "Teaspoons",
-    teaspoon: "Teaspoons",
-    teaspoons: "Teaspoons",
+    lb: "Pounds",
+    pound: "Pounds",
+    kg: "Kilograms",
     ml: "Milliliters",
     l: "Liters",
-    lb: "Pounds",
-    lbs: "Pounds",
-    pound: "Pounds",
-    pounds: "Pounds",
-    slice: "Slices",
-    slices: "Slices",
-    piece: "Pieces",
-    pieces: "Pieces",
-    scoop: "Scoops",
-    scoops: "Scoops",
+    liter: "Liters",
   };
   return unitNames[unit] || unit.charAt(0).toUpperCase() + unit.slice(1);
+}
+
+// Get short unit label for display
+function getUnitShortLabel(unit: string): string {
+  const labels: Record<string, string> = {
+    g: "g",
+    gram: "g",
+    oz: "oz",
+    ounce: "oz",
+    lb: "lb",
+    pound: "lb",
+    kg: "kg",
+    ml: "ml",
+    l: "L",
+    liter: "L",
+  };
+  return labels[unit] || unit;
 }
 
 type UnitType = "serving" | "custom";
@@ -166,15 +210,23 @@ export function FoodPickerDialog({
     setScannerOpen(false);
   };
 
-  const parsedServing = selectedFood ? parseServingSize(selectedFood.serving_size) : null;
+  const parsedServing = selectedFood
+    ? parseServingSize(selectedFood.serving_size, selectedFood.serving_size_grams)
+    : null;
   const canUseCustomUnit = parsedServing !== null;
   const customUnitName = parsedServing ? getUnitDisplayName(parsedServing.unit) : "";
+  const customUnitLabel = parsedServing ? getUnitShortLabel(parsedServing.unit) : "";
 
   // Calculate the effective servings multiplier
   const getServingsMultiplier = (): number => {
     if (unit === "serving") {
       return amount;
+    } else if (unit === "custom" && parsedServing && selectedFood?.serving_size_grams) {
+      // Convert user's amount to grams, then divide by serving grams
+      const userGrams = amount * parsedServing.gramsPerUnit;
+      return userGrams / selectedFood.serving_size_grams;
     } else if (unit === "custom" && parsedServing) {
+      // Fallback: simple ratio based on parsed amount
       return amount / parsedServing.amount;
     }
     return amount;
@@ -323,17 +375,24 @@ export function FoodPickerDialog({
             {/* Amount input */}
             <div>
               <label className="text-sm font-medium">
-                {unit === "serving" ? "Number of servings" : customUnitName}
+                {unit === "serving" ? "Number of servings" : `Amount (${customUnitLabel})`}
               </label>
-              <Input
-                type="number"
-                value={amount === 0 ? "" : amount}
-                onChange={(e) => setAmount(e.target.value === "" ? 0 : Number(e.target.value))}
-                min={0}
-                step={unit === "serving" ? 0.25 : 1}
-                className="mt-1"
-                autoFocus
-              />
+              <div className="relative mt-1">
+                <Input
+                  type="number"
+                  value={amount === 0 ? "" : amount}
+                  onChange={(e) => setAmount(e.target.value === "" ? 0 : Number(e.target.value))}
+                  min={0}
+                  step={unit === "serving" ? 0.25 : (parsedServing?.unit === 'g' || parsedServing?.unit === 'ml' ? 1 : 0.1)}
+                  className={unit === "custom" ? "pr-12" : ""}
+                  autoFocus
+                />
+                {unit === "custom" && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                    {customUnitLabel}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Calculated macros preview */}
