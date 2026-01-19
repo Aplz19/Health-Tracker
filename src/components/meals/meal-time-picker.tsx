@@ -15,76 +15,80 @@ export function MealTimePicker({
   isPm,
   onChange,
 }: MealTimePickerProps) {
-  const [localHour, setLocalHour] = useState(hour);
-  const [localMinute, setLocalMinute] = useState(minute);
+  // Store raw input strings to allow free editing
+  const [hourInput, setHourInput] = useState(hour.toString().padStart(2, "0"));
+  const [minuteInput, setMinuteInput] = useState(minute.toString().padStart(2, "0"));
   const [localIsPm, setLocalIsPm] = useState(isPm);
 
-  // Sync with props
+  // Sync with props when they change externally
   useEffect(() => {
-    setLocalHour(hour);
-    setLocalMinute(minute);
+    setHourInput(hour.toString().padStart(2, "0"));
+    setMinuteInput(minute.toString().padStart(2, "0"));
     setLocalIsPm(isPm);
   }, [hour, minute, isPm]);
 
-  const handleHourChange = (newHour: number) => {
-    // Wrap around: 12 -> 1, 0 -> 12
-    if (newHour > 12) newHour = 1;
-    if (newHour < 1) newHour = 12;
-    setLocalHour(newHour);
-    onChange(newHour, localMinute, localIsPm);
+  const commitHour = (value: string) => {
+    let num = parseInt(value) || 12;
+    // Clamp to valid 12-hour range
+    if (num < 1) num = 1;
+    if (num > 12) num = 12;
+    setHourInput(num.toString().padStart(2, "0"));
+    onChange(num, parseInt(minuteInput) || 0, localIsPm);
   };
 
-  const handleMinuteChange = (newMinute: number) => {
-    // Wrap around: 59 -> 0, -1 -> 59
-    if (newMinute > 59) newMinute = 0;
-    if (newMinute < 0) newMinute = 59;
-    setLocalMinute(newMinute);
-    onChange(localHour, newMinute, localIsPm);
+  const commitMinute = (value: string) => {
+    let num = parseInt(value) || 0;
+    // Clamp to valid minute range
+    if (num < 0) num = 0;
+    if (num > 59) num = 59;
+    setMinuteInput(num.toString().padStart(2, "0"));
+    onChange(parseInt(hourInput) || 12, num, localIsPm);
   };
 
   const toggleAmPm = () => {
     const newIsPm = !localIsPm;
     setLocalIsPm(newIsPm);
-    onChange(localHour, localMinute, newIsPm);
+    onChange(parseInt(hourInput) || 12, parseInt(minuteInput) || 0, newIsPm);
   };
-
-  const formatHour = (h: number) => h.toString().padStart(2, "0");
-  const formatMinute = (m: number) => m.toString().padStart(2, "0");
 
   return (
     <div className="flex items-center gap-0.5 text-sm">
       {/* Hour */}
       <input
-        type="number"
-        value={formatHour(localHour)}
+        type="text"
+        inputMode="numeric"
+        value={hourInput}
         onChange={(e) => {
-          const val = parseInt(e.target.value) || 1;
-          handleHourChange(Math.min(12, Math.max(1, val)));
+          // Only allow digits, max 2 chars
+          const val = e.target.value.replace(/\D/g, "").slice(0, 2);
+          setHourInput(val);
         }}
-        onBlur={() => {
-          if (localHour < 1) handleHourChange(1);
-          if (localHour > 12) handleHourChange(12);
+        onBlur={(e) => commitHour(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          }
         }}
-        className="w-7 bg-transparent text-center focus:outline-none focus:bg-muted rounded [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        min={1}
-        max={12}
+        className="w-7 bg-transparent text-center focus:outline-none focus:bg-muted rounded"
       />
       <span className="text-muted-foreground">:</span>
       {/* Minute */}
       <input
-        type="number"
-        value={formatMinute(localMinute)}
+        type="text"
+        inputMode="numeric"
+        value={minuteInput}
         onChange={(e) => {
-          const val = parseInt(e.target.value) || 0;
-          handleMinuteChange(Math.min(59, Math.max(0, val)));
+          // Only allow digits, max 2 chars
+          const val = e.target.value.replace(/\D/g, "").slice(0, 2);
+          setMinuteInput(val);
         }}
-        onBlur={() => {
-          if (localMinute < 0) handleMinuteChange(0);
-          if (localMinute > 59) handleMinuteChange(59);
+        onBlur={(e) => commitMinute(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          }
         }}
-        className="w-7 bg-transparent text-center focus:outline-none focus:bg-muted rounded [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        min={0}
-        max={59}
+        className="w-7 bg-transparent text-center focus:outline-none focus:bg-muted rounded"
       />
       {/* AM/PM Toggle */}
       <button

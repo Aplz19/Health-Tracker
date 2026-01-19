@@ -140,10 +140,23 @@ export function EditFoodLogDialog({
 
   // Parse all available units from serving size
   const parsedServings = parseAllServingSizes(food.serving_size, food.serving_size_grams);
-  const canUseCustomUnit = parsedServings.length > 0;
   const currentUnitIndex = Math.min(selectedUnitIndex, Math.max(0, parsedServings.length - 1));
   const parsedServing = parsedServings[currentUnitIndex] || null;
   const customUnitLabel = parsedServing ? getUnitShortLabel(parsedServing.unit) : "";
+
+  // Calculate the actual amount in a given unit based on current servings
+  const getAmountInUnit = (unitIndex: number): number => {
+    const ps = parsedServings[unitIndex];
+    if (!ps || !food.serving_size_grams) {
+      // Fallback: just multiply servings by the parsed amount
+      return currentServings * (ps?.amount || 1);
+    }
+    // Convert servings to grams, then to the target unit
+    const totalGrams = currentServings * food.serving_size_grams;
+    const amountInUnit = totalGrams / ps.gramsPerUnit;
+    // Round to reasonable precision
+    return Math.round(amountInUnit * 100) / 100;
+  };
 
   // Reset state when dialog opens with new food/servings
   useEffect(() => {
@@ -213,7 +226,8 @@ export function EditFoodLogDialog({
                   onClick={() => {
                     setUnit("custom");
                     setSelectedUnitIndex(index);
-                    setAmount(ps.amount);
+                    // Calculate the actual amount in this unit based on current servings
+                    setAmount(getAmountInUnit(index));
                   }}
                 >
                   {getUnitDisplayName(ps.unit)}
