@@ -297,16 +297,6 @@ export function WorkoutTab() {
         onDelete={deleteCardioSession}
       />
 
-      {/* Poop Farty Pee Pee Section */}
-      <div className="rounded-lg border bg-card overflow-hidden">
-        <div className="flex items-center justify-between p-3 border-b bg-muted/30">
-          <h3 className="font-semibold">Poop Farty Pee Pee</h3>
-        </div>
-        <div className="p-4 text-center text-sm text-muted-foreground">
-          Coming soon...
-        </div>
-      </div>
-
       {/* Exercise Picker Dialog */}
       <ExercisePickerDialog
         open={isDialogOpen}
