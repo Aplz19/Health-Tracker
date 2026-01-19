@@ -5,53 +5,10 @@ import { Plus, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FoodPickerDialog } from "@/components/food/food-picker-dialog";
+import { EditFoodLogDialog } from "@/components/meals/edit-food-log-dialog";
 import { MealTimePicker } from "@/components/meals/meal-time-picker";
 import type { Food, Meal } from "@/lib/supabase/types";
 import type { FoodLogWithFood } from "@/hooks/use-food-logs";
-
-// Separate component for the servings input to manage local state
-function ServingsInput({
-  logId,
-  initialServings,
-  onUpdate,
-}: {
-  logId: string;
-  initialServings: number;
-  onUpdate: (logId: string, servings: number) => Promise<void>;
-}) {
-  const [value, setValue] = useState(initialServings);
-
-  // Sync with external changes
-  useEffect(() => {
-    setValue(initialServings);
-  }, [initialServings]);
-
-  const handleBlur = () => {
-    const newValue = Math.max(0.01, value);
-    if (newValue !== initialServings) {
-      onUpdate(logId, newValue);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.currentTarget.blur();
-    }
-  };
-
-  return (
-    <Input
-      type="number"
-      value={value === 0 ? "" : value}
-      onChange={(e) => setValue(e.target.value === "" ? 0 : Number(e.target.value))}
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
-      className="w-16 h-7 text-center text-xs"
-      min={0.01}
-      step={1}
-    />
-  );
-}
 
 interface MealSectionProps {
   meal: Meal;
@@ -77,6 +34,7 @@ export function MealSection({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(meal.name);
+  const [editingLog, setEditingLog] = useState<FoodLogWithFood | null>(null);
 
   // Sync name with meal
   useEffect(() => {
@@ -196,9 +154,12 @@ export function MealSection({
             {logs.map((log) => (
               <div
                 key={log.id}
-                className="flex items-center justify-between p-2 rounded bg-muted/50 text-sm"
+                className="flex items-center justify-between p-2 rounded bg-muted/50 text-sm group"
               >
-                <div className="flex-1 min-w-0">
+                <button
+                  className="flex-1 min-w-0 text-left hover:bg-muted/80 -m-2 p-2 rounded transition-colors"
+                  onClick={() => setEditingLog(log)}
+                >
                   <p className="font-medium truncate">{log.food.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {Math.round(log.food.calories * log.servings)} cal |{" "}
@@ -206,22 +167,15 @@ export function MealSection({
                     {Math.round(log.food.total_carbohydrates * log.servings)}g C |{" "}
                     {Math.round(log.food.total_fat * log.servings)}g F
                   </p>
-                </div>
-                <div className="flex items-center gap-2 ml-2">
-                  <ServingsInput
-                    logId={log.id}
-                    initialServings={log.servings}
-                    onUpdate={onUpdateLog}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => onDeleteLog(log.id)}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive ml-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => onDeleteLog(log.id)}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
               </div>
             ))}
           </div>
@@ -259,6 +213,22 @@ export function MealSection({
         mealTitle={meal.name}
         onSelectFood={addFoodToMeal}
       />
+
+      {/* Edit Food Log Dialog */}
+      {editingLog && (
+        <EditFoodLogDialog
+          open={!!editingLog}
+          onOpenChange={(open) => {
+            if (!open) setEditingLog(null);
+          }}
+          food={editingLog.food}
+          currentServings={editingLog.servings}
+          onSave={(servings) => {
+            onUpdateLog(editingLog.id, servings);
+            setEditingLog(null);
+          }}
+        />
+      )}
     </div>
   );
 }

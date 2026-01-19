@@ -73,37 +73,62 @@ const UNIT_TO_GRAMS: Record<string, number> = {
 // Units we support for custom tracking (weight/volume only)
 const TRACKABLE_UNITS = ['g', 'gram', 'grams', 'oz', 'ounce', 'ounces', 'lb', 'lbs', 'pound', 'pounds', 'kg', 'ml', 'l', 'liter', 'liters'];
 
-// Parse serving size to find a trackable weight/volume unit
-function parseServingSize(servingSize: string, servingSizeGrams: number | null): ParsedServing | null {
-  const lowerServing = servingSize.toLowerCase();
+// Normalize unit to canonical form (e.g., "grams" -> "g", "ounces" -> "oz")
+function normalizeUnit(unit: string): string {
+  const normalized = unit.toLowerCase().replace(/s$/, '');
+  const canonicalMap: Record<string, string> = {
+    gram: 'g',
+    ounce: 'oz',
+    pound: 'lb',
+    liter: 'l',
+  };
+  return canonicalMap[normalized] || normalized;
+}
 
-  // Try to find a weight/volume unit anywhere in the string
+// Parse serving size to find ALL trackable weight/volume units
+function parseAllServingSizes(servingSize: string, servingSizeGrams: number | null): ParsedServing[] {
+  const lowerServing = servingSize.toLowerCase();
+  const results: ParsedServing[] = [];
+  const foundUnits = new Set<string>(); // Track canonical units to avoid duplicates
+
+  // Try to find all weight/volume units in the string
   // Patterns: "100g", "5 oz", "16 grams", "(16g)", "100 ml"
   for (const unit of TRACKABLE_UNITS) {
     // Match number followed by unit (with optional space)
     const regex = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${unit}(?:\\s|\\)|$|,)`, 'i');
     const match = lowerServing.match(regex);
     if (match) {
+      const canonicalUnit = normalizeUnit(unit);
+      // Skip if we already found this unit type (e.g., don't add both "g" and "grams")
+      if (foundUnits.has(canonicalUnit)) continue;
+      foundUnits.add(canonicalUnit);
+
       const amount = parseFloat(match[1]);
       const gramsPerUnit = UNIT_TO_GRAMS[unit] || 1;
-      return {
+      results.push({
         amount,
-        unit: unit.replace(/s$/, ''), // Normalize plural to singular
+        unit: canonicalUnit,
         gramsPerUnit,
-      };
+      });
     }
   }
 
-  // If no unit found but we have serving_size_grams, offer grams option
-  if (servingSizeGrams && servingSizeGrams > 0) {
-    return {
+  // If no units found but we have serving_size_grams, offer grams option
+  if (results.length === 0 && servingSizeGrams && servingSizeGrams > 0) {
+    results.push({
       amount: servingSizeGrams,
       unit: 'g',
       gramsPerUnit: 1,
-    };
+    });
   }
 
-  return null;
+  return results;
+}
+
+// Legacy function for backwards compatibility - returns first parsed unit
+function parseServingSize(servingSize: string, servingSizeGrams: number | null): ParsedServing | null {
+  const all = parseAllServingSizes(servingSize, servingSizeGrams);
+  return all.length > 0 ? all[0] : null;
 }
 
 // Get display name for unit
@@ -167,6 +192,7 @@ export function FoodPickerDialog({
   const [selectedFood, setSelectedFood] = useState<SelectedFood | null>(null);
   const [unit, setUnit] = useState<UnitType>("serving");
   const [amount, setAmount] = useState<number>(1);
+  const [selectedUnitIndex, setSelectedUnitIndex] = useState<number>(0); // Which unit to use when multiple available
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -207,13 +233,19 @@ export function FoodPickerDialog({
     setSelectedFood(food);
     setUnit("serving");
     setAmount(1);
+    setSelectedUnitIndex(0);
     setScannerOpen(false);
   };
 
-  const parsedServing = selectedFood
-    ? parseServingSize(selectedFood.serving_size, selectedFood.serving_size_grams)
-    : null;
-  const canUseCustomUnit = parsedServing !== null;
+  // Parse all available units from serving size
+  const parsedServings = selectedFood
+    ? parseAllServingSizes(selectedFood.serving_size, selectedFood.serving_size_grams)
+    : [];
+  const canUseCustomUnit = parsedServings.length > 0;
+  const hasMultipleUnits = parsedServings.length > 1;
+  // Get the currently selected unit (clamped to valid index)
+  const currentUnitIndex = Math.min(selectedUnitIndex, Math.max(0, parsedServings.length - 1));
+  const parsedServing = parsedServings[currentUnitIndex] || null;
   const customUnitName = parsedServing ? getUnitDisplayName(parsedServing.unit) : "";
   const customUnitLabel = parsedServing ? getUnitShortLabel(parsedServing.unit) : "";
 
@@ -238,12 +270,14 @@ export function FoodPickerDialog({
     setSelectedFood(food);
     setUnit("serving");
     setAmount(1);
+    setSelectedUnitIndex(0);
   };
 
   const handleBack = () => {
     setSelectedFood(null);
     setAmount(1);
     setUnit("serving");
+    setSelectedUnitIndex(0);
   };
 
   const handleConfirm = async () => {
@@ -309,6 +343,7 @@ export function FoodPickerDialog({
       setSelectedFood(null);
       setAmount(1);
       setUnit("serving");
+      setSelectedUnitIndex(0);
     }
     onOpenChange(open);
   };
@@ -347,10 +382,10 @@ export function FoodPickerDialog({
             </div>
 
             {/* Unit toggle */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 variant={unit === "serving" ? "default" : "outline"}
-                className="flex-1"
+                className="flex-1 min-w-[80px]"
                 onClick={() => {
                   setUnit("serving");
                   setAmount(1);
@@ -358,18 +393,33 @@ export function FoodPickerDialog({
               >
                 Servings
               </Button>
-              <Button
-                variant={unit === "custom" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => {
-                  setUnit("custom");
-                  setAmount(parsedServing?.amount || 1);
-                }}
-                disabled={!canUseCustomUnit}
-                title={!canUseCustomUnit ? "Serving size must start with a number (e.g., '100g', '1 cup')" : ""}
-              >
-                {customUnitName || "Units"}
-              </Button>
+              {parsedServings.length > 0 ? (
+                // Show a button for each available unit
+                parsedServings.map((ps, index) => (
+                  <Button
+                    key={ps.unit}
+                    variant={unit === "custom" && currentUnitIndex === index ? "default" : "outline"}
+                    className="flex-1 min-w-[80px]"
+                    onClick={() => {
+                      setUnit("custom");
+                      setSelectedUnitIndex(index);
+                      setAmount(ps.amount);
+                    }}
+                  >
+                    {getUnitDisplayName(ps.unit)}
+                  </Button>
+                ))
+              ) : (
+                // No units available - show disabled button
+                <Button
+                  variant="outline"
+                  className="flex-1 min-w-[80px]"
+                  disabled
+                  title="Serving size must include a weight (e.g., '100g', '4 oz')"
+                >
+                  Units
+                </Button>
+              )}
             </div>
 
             {/* Amount input */}
