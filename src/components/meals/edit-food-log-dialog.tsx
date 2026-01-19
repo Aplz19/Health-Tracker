@@ -80,6 +80,33 @@ function parseAllServingSizes(servingSize: string, servingSizeGrams: number | nu
       unit: 'g',
       gramsPerUnit: 1,
     });
+    foundUnits.add('g');
+  }
+
+  // Auto-add complementary units for convenience
+  // If we have grams but not ounces, add ounces
+  if (foundUnits.has('g') && !foundUnits.has('oz')) {
+    const gramsEntry = results.find(r => r.unit === 'g');
+    if (gramsEntry) {
+      const ozAmount = Math.round((gramsEntry.amount / 28.35) * 100) / 100;
+      results.push({
+        amount: ozAmount,
+        unit: 'oz',
+        gramsPerUnit: 28.35,
+      });
+    }
+  }
+  // If we have ounces but not grams, add grams
+  if (foundUnits.has('oz') && !foundUnits.has('g')) {
+    const ozEntry = results.find(r => r.unit === 'oz');
+    if (ozEntry) {
+      const gramsAmount = Math.round(ozEntry.amount * 28.35);
+      results.push({
+        amount: gramsAmount,
+        unit: 'g',
+        gramsPerUnit: 1,
+      });
+    }
   }
 
   return results;
