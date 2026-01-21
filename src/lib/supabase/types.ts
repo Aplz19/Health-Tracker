@@ -80,6 +80,7 @@ export interface Exercise {
   id: string;
   name: string;
   category: ExerciseCategory;
+  user_id: string | null; // null = preset, string = user-created
   created_at: string;
   updated_at: string;
 }

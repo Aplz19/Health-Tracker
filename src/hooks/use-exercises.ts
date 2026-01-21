@@ -38,12 +38,16 @@ export function useExercises(searchQuery: string = "", category?: ExerciseCatego
     }
   }, [searchQuery, category]);
 
-  const addExercise = async (exercise: ExerciseInsert) => {
+  const addExercise = async (exercise: Omit<ExerciseInsert, "user_id">) => {
     setError(null);
     try {
+      // Get current user ID to associate exercise with them
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("exercises")
-        .insert(exercise)
+        .insert({ ...exercise, user_id: user.id })
         .select()
         .single();
 
