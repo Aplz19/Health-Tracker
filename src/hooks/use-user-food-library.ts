@@ -186,12 +186,16 @@ export function useUserFoodLibrary(searchQuery: string = "") {
 
   // Update a food in the global cache (user must own it in their library)
   const updateFood = async (foodId: string, updates: Partial<FoodInsert>): Promise<void> => {
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from("foods")
       .update(updates)
-      .eq("id", foodId);
+      .eq("id", foodId)
+      .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error("Failed to update food:", error);
+      throw error;
+    }
 
     await fetchLibrary();
   };

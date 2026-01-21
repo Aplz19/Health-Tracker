@@ -127,8 +127,9 @@ export function AddFoodForm({ editingFood, onSubmit }: AddFoodFormProps) {
     try {
       await onSubmit(formData);
       setFormData(initialFormData);
-    } catch {
-      // Error is handled by the parent
+    } catch (err) {
+      console.error("Failed to save food:", err);
+      alert("Failed to save food. Check console for details.");
     } finally {
       setIsSubmitting(false);
     }
