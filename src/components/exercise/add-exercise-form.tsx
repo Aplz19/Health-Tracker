@@ -10,7 +10,7 @@ import type { Exercise, ExerciseCategory, ExerciseInsert } from "@/lib/supabase/
 interface AddExerciseFormProps {
   editingExercise: Exercise | null;
   defaultCategory?: ExerciseCategory;
-  onSubmit: (data: ExerciseInsert) => Promise<void>;
+  onSubmit: (data: Omit<ExerciseInsert, "user_id">) => Promise<void>;
   onCancel: () => void;
 }
 
