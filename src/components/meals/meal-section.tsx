@@ -171,10 +171,10 @@ export function MealSection({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive ml-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive ml-2 shrink-0"
                   onClick={() => onDeleteLog(log.id)}
                 >
-                  <X className="h-3 w-3" />
+                  <X className="h-4 w-4" />
                 </Button>
               </div>
             ))}
