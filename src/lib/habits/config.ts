@@ -1,0 +1,84 @@
+import {
+  Brain,
+  BookOpen,
+  Flame,
+  Cannabis,
+  Wine,
+  Snowflake,
+  Cigarette,
+} from "lucide-react";
+import type { HabitDefinition } from "@/types/habits";
+
+export const HABIT_DEFINITIONS: HabitDefinition[] = [
+  {
+    key: "meditation",
+    label: "Meditation",
+    unit: "min",
+    icon: Brain,
+    color: "text-purple-500",
+    defaultGoal: 15,
+    step: 5,
+  },
+  {
+    key: "reading",
+    label: "Reading",
+    unit: "min",
+    icon: BookOpen,
+    color: "text-blue-500",
+    defaultGoal: 30,
+    step: 5,
+  },
+  {
+    key: "sauna",
+    label: "Sauna",
+    unit: "min",
+    icon: Flame,
+    color: "text-orange-500",
+    defaultGoal: 20,
+    step: 5,
+  },
+  {
+    key: "thc",
+    label: "THC",
+    unit: "uses",
+    icon: Cannabis,
+    color: "text-green-500",
+    defaultGoal: 1,
+    step: 1,
+  },
+  {
+    key: "alcohol",
+    label: "Alcohol",
+    unit: "drinks",
+    icon: Wine,
+    color: "text-red-500",
+    defaultGoal: 2,
+    step: 1,
+  },
+  {
+    key: "cold_shower",
+    label: "Cold Shower",
+    unit: "min",
+    icon: Snowflake,
+    color: "text-cyan-500",
+    defaultGoal: 3,
+    step: 1,
+  },
+  {
+    key: "nicotine",
+    label: "Nicotine",
+    unit: "uses",
+    icon: Cigarette,
+    color: "text-gray-500",
+    defaultGoal: 1,
+    step: 1,
+  },
+];
+
+export function getHabitByKey(key: string): HabitDefinition | undefined {
+  return HABIT_DEFINITIONS.find((h) => h.key === key);
+}
+
+export function getAllHabitKeys(): string[] {
+  return HABIT_DEFINITIONS.map((h) => h.key);
+}
