@@ -124,22 +124,25 @@ function HabitRow({
 
 // Configuration dialog for habit settings
 function HabitConfigDialog({
-  habit,
+  habitKey,
   open,
   onOpenChange,
 }: {
-  habit: UserHabit | null;
+  habitKey: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { setTrackingMode, setGoalAmount } = useHabitPreferencesContext();
+  const { getAllHabits, setTrackingMode, setGoalAmount } = useHabitPreferencesContext();
   const [localGoal, setLocalGoal] = useState("");
+
+  // Get fresh habit data from context on every render
+  const habit = habitKey ? getAllHabits().find(h => h.definition.key === habitKey) : null;
 
   useEffect(() => {
     if (habit) {
       setLocalGoal(habit.goalAmount.toString());
     }
-  }, [habit]);
+  }, [habit?.goalAmount]);
 
   if (!habit) return null;
 
@@ -244,7 +247,7 @@ export function HabitsSettings() {
     isLoading,
   } = useHabitPreferencesContext();
 
-  const [configHabit, setConfigHabit] = useState<UserHabit | null>(null);
+  const [configHabitKey, setConfigHabitKey] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -313,7 +316,7 @@ export function HabitsSettings() {
                     onToggle={(enabled) =>
                       toggleHabit(habit.definition.key, enabled)
                     }
-                    onConfigure={() => setConfigHabit(habit)}
+                    onConfigure={() => setConfigHabitKey(habit.definition.key)}
                   />
                 ))}
               </div>
@@ -340,9 +343,9 @@ export function HabitsSettings() {
       )}
 
       <HabitConfigDialog
-        habit={configHabit}
-        open={configHabit !== null}
-        onOpenChange={(open) => !open && setConfigHabit(null)}
+        habitKey={configHabitKey}
+        open={configHabitKey !== null}
+        onOpenChange={(open) => !open && setConfigHabitKey(null)}
       />
     </div>
   );
