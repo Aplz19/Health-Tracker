@@ -247,22 +247,27 @@ export function FoodPickerDialog({
     setRecentIds(getRecentFoodIds());
   }, []);
 
+  const recentIdLookup = useMemo(() => {
+    if (recentIds.length === 0) return null;
+    return new Map(recentIds.map((id, index) => [id, index]));
+  }, [recentIds]);
+
   // Sort library foods by recent usage
   const sortedLibraryFoods = useMemo(() => {
-    if (recentIds.length === 0) return libraryFoods;
+    if (!recentIdLookup) return libraryFoods;
 
     return [...libraryFoods].sort((a, b) => {
-      const aIndex = recentIds.indexOf(a.id);
-      const bIndex = recentIds.indexOf(b.id);
+      const aIndex = recentIdLookup.get(a.id);
+      const bIndex = recentIdLookup.get(b.id);
 
-      if (aIndex !== -1 && bIndex !== -1) {
+      if (aIndex !== undefined && bIndex !== undefined) {
         return aIndex - bIndex;
       }
-      if (aIndex !== -1) return -1;
-      if (bIndex !== -1) return 1;
+      if (aIndex !== undefined) return -1;
+      if (bIndex !== undefined) return 1;
       return 0;
     });
-  }, [libraryFoods, recentIds]);
+  }, [libraryFoods, recentIdLookup]);
 
   const isLoading = isLoadingLibrary;
 
@@ -276,9 +281,10 @@ export function FoodPickerDialog({
   };
 
   // Parse all available units from serving size
-  const parsedServings = selectedFood
-    ? parseAllServingSizes(selectedFood.serving_size, selectedFood.serving_size_grams)
-    : [];
+  const parsedServings = useMemo(() => {
+    if (!selectedFood) return [];
+    return parseAllServingSizes(selectedFood.serving_size, selectedFood.serving_size_grams);
+  }, [selectedFood]);
   const canUseCustomUnit = parsedServings.length > 0;
   const hasMultipleUnits = parsedServings.length > 1;
   // Get the currently selected unit (clamped to valid index)
