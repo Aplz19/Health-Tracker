@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, X, Trash2 } from "lucide-react";
+import { Plus, X, Trash2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FoodPickerDialog } from "@/components/food/food-picker-dialog";
 import { EditFoodLogDialog } from "@/components/meals/edit-food-log-dialog";
 import { MealTimePicker } from "@/components/meals/meal-time-picker";
+import { AIFoodDialog } from "@/components/ai/ai-food-dialog";
+import { useAuth } from "@/contexts/auth-context";
 import type { Food, Meal } from "@/lib/supabase/types";
 import type { FoodLogWithFood } from "@/hooks/use-food-logs";
 
@@ -32,9 +34,11 @@ export function MealSection({
   onDeleteMeal,
 }: MealSectionProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isAIDialogOpen, setIsAIDialogOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(meal.name);
   const [editingLog, setEditingLog] = useState<FoodLogWithFood | null>(null);
+  const { user } = useAuth();
 
   // Sync name with meal
   useEffect(() => {
@@ -194,16 +198,28 @@ export function MealSection({
           </div>
         )}
 
-        {/* Add Button */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full h-9 rounded-none border-t text-muted-foreground"
-          onClick={() => setIsDialogOpen(true)}
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          Add Food
-        </Button>
+        {/* Add Buttons */}
+        <div className="flex border-t">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 h-9 rounded-none text-muted-foreground"
+            onClick={() => setIsDialogOpen(true)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add Food
+          </Button>
+          <div className="w-px bg-border" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 rounded-none text-muted-foreground px-3"
+            onClick={() => setIsAIDialogOpen(true)}
+            title="AI Food Logger"
+          >
+            <Sparkles className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Food Picker Dialog */}
@@ -213,6 +229,17 @@ export function MealSection({
         mealTitle={meal.name}
         onSelectFood={addFoodToMeal}
       />
+
+      {/* AI Food Dialog */}
+      {user && (
+        <AIFoodDialog
+          open={isAIDialogOpen}
+          onOpenChange={setIsAIDialogOpen}
+          mealTitle={meal.name}
+          userId={user.id}
+          onSelectFood={addFoodToMeal}
+        />
+      )}
 
       {/* Edit Food Log Dialog */}
       {editingLog && (

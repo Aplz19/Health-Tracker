@@ -24,6 +24,8 @@ export interface Food {
   fdc_id: number | null;        // USDA FoodData Central ID (legacy)
   barcode: string | null;       // Barcode for scanned foods
   source: "manual" | "usda" | "openfoodfacts";  // Where this food came from
+  // Vector search
+  embedding: number[] | null;   // OpenAI embedding for semantic search (1536 dimensions)
   created_at: string;
   updated_at: string;
 }
