@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/whoop-sync",
-      "schedule": "0 * * * *"
+      "schedule": "0 6 * * *"
     }
   ]
 }
