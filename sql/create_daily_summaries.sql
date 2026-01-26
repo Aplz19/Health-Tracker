@@ -1,14 +1,17 @@
 -- Create daily_summaries table for aggregated daily data
 CREATE TABLE IF NOT EXISTS daily_summaries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  date DATE NOT NULL UNIQUE,
+  user_id UUID NOT NULL,
+  date DATE NOT NULL,
   data JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (user_id, date)
 );
 
--- Index on date for fast lookups
+-- Indexes for fast lookups
 CREATE INDEX IF NOT EXISTS idx_daily_summaries_date ON daily_summaries(date);
+CREATE INDEX IF NOT EXISTS idx_daily_summaries_user_id ON daily_summaries(user_id);
 
 -- Trigger to auto-update updated_at
 CREATE OR REPLACE FUNCTION update_daily_summaries_updated_at()

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, ArrowLeft, Database, Loader2, ScanBarcode } from "lucide-react";
+import { Search, ArrowLeft, Database, Loader2, ScanBarcode, Globe } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,8 +11,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
+import { useUserFoodLibrary } from "@/hooks/use-user-food-library";
 import { BarcodeScanner } from "./barcode-scanner";
+import { searchProducts } from "@/lib/openfoodfacts/client";
 import type { Food } from "@/lib/supabase/types";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
 
@@ -234,6 +235,9 @@ export function FoodPickerDialog({
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [offFoods, setOffFoods] = useState<TransformedOFFFood[]>([]);
+  const [isOffLoading, setIsOffLoading] = useState(false);
+  const [offError, setOffError] = useState<string | null>(null);
 
   // User's personal food library
   const {
@@ -269,7 +273,42 @@ export function FoodPickerDialog({
     });
   }, [libraryFoods, recentIdLookup]);
 
+  const filteredOffFoods = useMemo(() => {
+    if (offFoods.length === 0) return [];
+    const libraryBarcodes = new Set(
+      libraryFoods
+        .map((food) => food.barcode)
+        .filter((barcode): barcode is string => Boolean(barcode))
+    );
+
+    return offFoods.filter((food) => !libraryBarcodes.has(food.barcode));
+  }, [offFoods, libraryFoods]);
+
   const isLoading = isLoadingLibrary;
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setOffFoods([]);
+      setOffError(null);
+      return;
+    }
+
+    const handler = setTimeout(async () => {
+      setIsOffLoading(true);
+      setOffError(null);
+      try {
+        const { foods } = await searchProducts(searchQuery, 12);
+        setOffFoods(foods);
+      } catch (err) {
+        setOffError(err instanceof Error ? err.message : "Failed to search Open Food Facts");
+        setOffFoods([]);
+      } finally {
+        setIsOffLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
   // Handle scanned food from barcode
   const handleScannedFood = (food: TransformedOFFFood) => {
@@ -561,7 +600,7 @@ export function FoodPickerDialog({
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
                   <p className="text-sm text-muted-foreground">Loading...</p>
                 </div>
-              ) : sortedLibraryFoods.length === 0 ? (
+              ) : sortedLibraryFoods.length === 0 && filteredOffFoods.length === 0 && !isOffLoading ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <p className="text-sm text-muted-foreground">
                     {searchQuery
@@ -606,6 +645,51 @@ export function FoodPickerDialog({
                     </div>
                   )}
 
+                  {/* Open Food Facts results */}
+                  {searchQuery.trim() && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+                        <Globe className="h-3 w-3" />
+                        <span>Open Food Facts</span>
+                        {isOffLoading && (
+                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        )}
+                      </div>
+
+                      {offError && (
+                        <p className="text-xs text-destructive px-1">{offError}</p>
+                      )}
+
+                      {!isOffLoading && filteredOffFoods.length === 0 && !offError && (
+                        <p className="text-xs text-muted-foreground px-1">
+                          No matches found in Open Food Facts.
+                        </p>
+                      )}
+
+                      {filteredOffFoods.map((food) => (
+                        <Card
+                          key={food.barcode}
+                          className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => handleSelectFood(food)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium truncate">{food.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {food.serving_size}
+                              </p>
+                            </div>
+                            <div className="text-right text-sm ml-2 shrink-0">
+                              <p className="font-medium">{food.calories} cal</p>
+                              <p className="text-xs text-muted-foreground">
+                                {food.protein}P | {food.total_carbohydrates}C | {food.total_fat}F
+                              </p>
+                            </div>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

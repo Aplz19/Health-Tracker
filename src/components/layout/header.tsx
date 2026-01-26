@@ -71,7 +71,7 @@ export function Header() {
     format(selectedDate, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b border-white/10 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
       <div className="container flex h-14 max-w-screen-md items-center justify-between px-4 mx-auto">
         <div className="flex items-center gap-2">
           <DropdownMenu>
@@ -114,7 +114,9 @@ export function Header() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <h1 className="text-lg font-semibold tracking-tight">Health Tracker</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-primary">
+            Health Tracker
+          </h1>
         </div>
 
         <div className="flex items-center gap-1">

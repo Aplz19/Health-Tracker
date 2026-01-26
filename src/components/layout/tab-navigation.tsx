@@ -11,24 +11,39 @@ import { Apple, Activity, Dumbbell, BarChart3, ListChecks } from "lucide-react";
 export function TabNavigation() {
   return (
     <Tabs defaultValue="dietary" className="w-full">
-      <TabsList className="grid w-full grid-cols-5 sticky top-14 z-40 bg-background">
-        <TabsTrigger value="dietary" className="flex items-center gap-1.5">
+      <TabsList className="grid w-full grid-cols-5 sticky top-14 z-40 rounded-full border border-white/10 bg-card/80 p-1 shadow-sm">
+        <TabsTrigger
+          value="dietary"
+          className="flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+        >
           <Apple className="h-4 w-4" />
           <span className="hidden sm:inline">Dietary</span>
         </TabsTrigger>
-        <TabsTrigger value="workout" className="flex items-center gap-1.5">
+        <TabsTrigger
+          value="workout"
+          className="flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+        >
           <Dumbbell className="h-4 w-4" />
           <span className="hidden sm:inline">Workout</span>
         </TabsTrigger>
-        <TabsTrigger value="habits" className="flex items-center gap-1.5">
+        <TabsTrigger
+          value="habits"
+          className="flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+        >
           <ListChecks className="h-4 w-4" />
           <span className="hidden sm:inline">Habits</span>
         </TabsTrigger>
-        <TabsTrigger value="whoop" className="flex items-center gap-1.5">
+        <TabsTrigger
+          value="whoop"
+          className="flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+        >
           <Activity className="h-4 w-4" />
           <span className="hidden sm:inline">Whoop</span>
         </TabsTrigger>
-        <TabsTrigger value="analytics" className="flex items-center gap-1.5">
+        <TabsTrigger
+          value="analytics"
+          className="flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+        >
           <BarChart3 className="h-4 w-4" />
           <span className="hidden sm:inline">Analytics</span>
         </TabsTrigger>

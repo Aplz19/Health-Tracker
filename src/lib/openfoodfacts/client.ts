@@ -1,4 +1,9 @@
-import type { OFFProductResponse, OFFProduct, TransformedOFFFood } from "./types";
+import type {
+  OFFProductResponse,
+  OFFProduct,
+  OFFSearchResponse,
+  TransformedOFFFood,
+} from "./types";
 
 // Use US subdomain for US-focused products
 const OFF_API_BASE = "https://us.openfoodfacts.org/api/v2";
@@ -8,6 +13,10 @@ export interface BarcodeResult {
   found: boolean;
   food?: TransformedOFFFood;
   error?: string;
+}
+
+export interface SearchResult {
+  foods: TransformedOFFFood[];
 }
 
 // Look up a product by barcode
@@ -50,6 +59,45 @@ export async function lookupBarcode(barcode: string): Promise<BarcodeResult> {
       error: err instanceof Error ? err.message : "Failed to parse product data",
     };
   }
+}
+
+// Search products by name
+export async function searchProducts(query: string, limit: number = 10): Promise<SearchResult> {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return { foods: [] };
+  }
+
+  const params = new URLSearchParams({
+    search_terms: trimmed,
+    page_size: String(limit),
+    fields: [
+      "code",
+      "product_name",
+      "product_name_en",
+      "brands",
+      "serving_size",
+      "serving_quantity",
+      "nutriments",
+    ].join(","),
+  });
+
+  const response = await fetch(`${OFF_WORLD_API}/search?${params}`, {
+    headers: {
+      "User-Agent": "HealthTracker/1.0 (https://github.com/health-tracker)",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Open Food Facts search failed (${response.status})`);
+  }
+
+  const data: OFFSearchResponse = await response.json();
+  const foods = (data.products || [])
+    .filter((product) => product.code)
+    .map((product) => transformProduct(product, product.code));
+
+  return { foods };
 }
 
 // Transform Open Food Facts product to our format

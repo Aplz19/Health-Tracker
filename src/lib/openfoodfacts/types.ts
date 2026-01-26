@@ -7,6 +7,10 @@ export interface OFFProductResponse {
   product?: OFFProduct;
 }
 
+export interface OFFSearchResponse {
+  products: OFFProduct[];
+}
+
 export interface OFFProduct {
   code: string;
   product_name?: string;

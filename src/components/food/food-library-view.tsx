@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Search, Database, ScanBarcode } from "lucide-react";
+import { Plus, Search, Database, ScanBarcode, Globe, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FoodList } from "./food-list";
@@ -18,6 +18,10 @@ interface FoodLibraryViewProps {
   onEditFood: (food: LibraryFood) => void;
   onDeleteFood: (libraryId: string) => void;
   onAddScannedFood: (food: TransformedOFFFood) => Promise<void>;
+  offFoods: TransformedOFFFood[];
+  isOffLoading: boolean;
+  offError: string | null;
+  onAddExternalFood: (food: TransformedOFFFood) => Promise<void>;
 }
 
 export function FoodLibraryView({
@@ -29,9 +33,14 @@ export function FoodLibraryView({
   onEditFood,
   onDeleteFood,
   onAddScannedFood,
+  offFoods,
+  isOffLoading,
+  offError,
+  onAddExternalFood,
 }: FoodLibraryViewProps) {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [isAddingScanned, setIsAddingScanned] = useState(false);
+  const [isAddingExternal, setIsAddingExternal] = useState<string | null>(null);
 
   const handleFoodFound = async (food: TransformedOFFFood) => {
     setIsAddingScanned(true);
@@ -41,6 +50,17 @@ export function FoodLibraryView({
       console.error("Failed to add scanned food:", err);
     } finally {
       setIsAddingScanned(false);
+    }
+  };
+
+  const handleAddExternal = async (food: TransformedOFFFood) => {
+    setIsAddingExternal(food.barcode);
+    try {
+      await onAddExternalFood(food);
+    } catch (err) {
+      console.error("Failed to add external food:", err);
+    } finally {
+      setIsAddingExternal(null);
     }
   };
 
@@ -85,6 +105,53 @@ export function FoodLibraryView({
                 if (food) onDeleteFood(food.library_id);
               }}
             />
+          </div>
+        )}
+
+        {/* Open Food Facts Search Results */}
+        {searchQuery && (
+          <div className="p-4 space-y-2 border-t border-border">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Globe className="h-3 w-3" />
+              <span>Open Food Facts</span>
+              {isOffLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+            </div>
+
+            {offError && (
+              <p className="text-xs text-destructive">{offError}</p>
+            )}
+
+            {!isOffLoading && !offError && offFoods.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No matches found in Open Food Facts.
+              </p>
+            )}
+
+            {offFoods.map((food) => (
+              <div
+                key={food.barcode}
+                className="rounded-lg border bg-card p-3 flex items-start justify-between gap-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{food.name}</p>
+                  <p className="text-xs text-muted-foreground">{food.serving_size}</p>
+                  <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
+                    <span>{food.calories} cal</span>
+                    <span>{food.protein}g protein</span>
+                    <span>{food.total_carbohydrates}g carbs</span>
+                    <span>{food.total_fat}g fat</span>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAddExternal(food)}
+                  disabled={isAddingExternal === food.barcode}
+                >
+                  {isAddingExternal === food.barcode ? "Adding..." : "Add"}
+                </Button>
+              </div>
+            ))}
           </div>
         )}
 
