@@ -3,36 +3,23 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { UserPlus, User, Lock } from "lucide-react";
+import { UserPlus, Mail, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/lib/supabase/client";
-
-// Convert username to fake email for Supabase auth
-const toEmail = (username: string) => `${username.toLowerCase()}@app.local`;
+import { useAuth } from "@/contexts/auth-context";
 
 export default function SignupPage() {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const { signIn, signUp } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
-    // Validate username
-    if (username.length < 3) {
-      setError("Username must be at least 3 characters");
-      return;
-    }
-
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-      setError("Username can only contain letters, numbers, and underscores");
-      return;
-    }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match");
@@ -47,26 +34,18 @@ export default function SignupPage() {
     setIsLoading(true);
 
     try {
-      const email = toEmail(username);
-
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
+      const { error } = await signUp(email, password);
 
       if (error) {
         // Handle "user already exists" error
         if (error.message.includes("already registered")) {
-          setError("Username is already taken");
+          setError("Email is already registered");
         } else {
           setError(error.message);
         }
       } else {
         // Auto sign in after signup
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        const { error: signInError } = await signIn(email, password);
 
         if (signInError) {
           setError("Account created! Please sign in.");
@@ -92,19 +71,19 @@ export default function SignupPage() {
           </div>
           <h1 className="text-2xl font-bold">Create Account</h1>
           <p className="text-sm text-muted-foreground">
-            Pick a username to get started
+            Use your email to get started
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                type="text"
-                placeholder="Username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="pl-10"
                 autoFocus
                 autoCapitalize="none"
