@@ -26,7 +26,7 @@
 
 ---
 
-## Customizable Analytics Dashboard
+## ~~Customizable Analytics Dashboard~~ ✅ COMPLETED
 
 ### Metric Selection & Configuration
 - Allow users to choose which metrics/graphs appear on the Analytics tab
@@ -93,7 +93,7 @@
 
 ---
 
-## Automatic Whoop Data Sync
+## ~~Automatic Whoop Data Sync~~ ✅ COMPLETED
 
 ### Hourly Background Sync
 - Currently Whoop data only syncs when user manually clicks the sync button

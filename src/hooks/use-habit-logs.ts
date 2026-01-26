@@ -40,81 +40,129 @@ export function useHabitLogs(date: string) {
     return logs.find((log) => log.habit_key === habitKey);
   }, [logs]);
 
-  // Update or create log for a habit - OPTIMISTIC UPDATE
-  const updateHabitLog = async (habitKey: string, amount: number): Promise<void> => {
+  // Toggle completed status (for checkbox/goal modes)
+  const toggleHabit = async (habitKey: string, amount: number | null = null): Promise<void> => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const existingLog = logs.find((l) => l.habit_key === habitKey);
+      const newCompleted = !existingLog?.completed;
 
-      if (amount === 0 && existingLog) {
-        // Delete the log if amount is 0
-        setLogs((prev) => prev.filter((l) => l.habit_key !== habitKey));
+      // Optimistic update
+      if (existingLog) {
+        setLogs((prev) =>
+          prev.map((l) =>
+            l.habit_key === habitKey
+              ? { ...l, completed: newCompleted, amount: newCompleted ? amount : null }
+              : l
+          )
+        );
+      } else {
+        const tempLog: HabitLog = {
+          id: `temp-${Date.now()}`,
+          user_id: user.id,
+          date,
+          habit_key: habitKey,
+          completed: true,
+          amount,
+          created_at: new Date().toISOString(),
+        };
+        setLogs((prev) => [...prev, tempLog]);
+      }
 
-        await supabase
-          .from("habit_logs")
-          .delete()
-          .eq("id", existingLog.id);
-      } else if (amount > 0) {
-        // Optimistic update
-        if (existingLog) {
-          setLogs((prev) =>
-            prev.map((l) =>
-              l.habit_key === habitKey ? { ...l, amount } : l
-            )
-          );
-        } else {
-          // Add temporary log
-          const tempLog: HabitLog = {
-            id: `temp-${Date.now()}`,
+      // Sync to database
+      const { data, error } = await supabase
+        .from("habit_logs")
+        .upsert(
+          {
             user_id: user.id,
             date,
             habit_key: habitKey,
-            amount,
-            created_at: new Date().toISOString(),
-          };
-          setLogs((prev) => [...prev, tempLog]);
-        }
+            completed: newCompleted,
+            amount: newCompleted ? amount : null,
+          },
+          { onConflict: "user_id,date,habit_key" }
+        )
+        .select()
+        .single();
 
-        // Sync to database
-        const { data, error } = await supabase
-          .from("habit_logs")
-          .upsert(
-            {
-              user_id: user.id,
-              date,
-              habit_key: habitKey,
-              amount,
-            },
-            { onConflict: "user_id,date,habit_key" }
+      if (error) throw error;
+
+      // Update with real data
+      if (data) {
+        setLogs((prev) =>
+          prev.map((l) =>
+            l.habit_key === habitKey ? (data as HabitLog) : l
           )
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        // Update with real ID
-        if (data) {
-          setLogs((prev) =>
-            prev.map((l) =>
-              l.habit_key === habitKey ? (data as HabitLog) : l
-            )
-          );
-        }
+        );
       }
     } catch (err) {
-      // Refetch on error to restore state
       await fetchLogs();
       throw err;
     }
   };
 
-  // Toggle habit (for checkbox mode) - sets to goal amount or 0
-  const toggleHabit = async (habitKey: string, goalAmount: number): Promise<void> => {
-    const existingLog = logs.find((l) => l.habit_key === habitKey);
-    const newAmount = existingLog && existingLog.amount > 0 ? 0 : goalAmount;
-    await updateHabitLog(habitKey, newAmount);
+  // Update amount (for manual mode) - auto-sets completed=true if amount > 0
+  const updateHabitAmount = async (habitKey: string, amount: number): Promise<void> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const existingLog = logs.find((l) => l.habit_key === habitKey);
+      const completed = amount > 0;
+
+      // Optimistic update
+      if (existingLog) {
+        setLogs((prev) =>
+          prev.map((l) =>
+            l.habit_key === habitKey
+              ? { ...l, completed, amount: amount > 0 ? amount : null }
+              : l
+          )
+        );
+      } else if (amount > 0) {
+        const tempLog: HabitLog = {
+          id: `temp-${Date.now()}`,
+          user_id: user.id,
+          date,
+          habit_key: habitKey,
+          completed: true,
+          amount,
+          created_at: new Date().toISOString(),
+        };
+        setLogs((prev) => [...prev, tempLog]);
+      }
+
+      // Sync to database
+      const { data, error } = await supabase
+        .from("habit_logs")
+        .upsert(
+          {
+            user_id: user.id,
+            date,
+            habit_key: habitKey,
+            completed,
+            amount: amount > 0 ? amount : null,
+          },
+          { onConflict: "user_id,date,habit_key" }
+        )
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setLogs((prev) =>
+          prev.map((l) =>
+            l.habit_key === habitKey ? (data as HabitLog) : l
+          )
+        );
+      }
+    } catch (err) {
+      await fetchLogs();
+      throw err;
+    }
   };
 
   return {
@@ -122,8 +170,8 @@ export function useHabitLogs(date: string) {
     isLoading,
     error,
     getLogForHabit,
-    updateHabitLog,
     toggleHabit,
+    updateHabitAmount,
     refetch: fetchLogs,
   };
 }

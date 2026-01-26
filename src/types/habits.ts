@@ -38,7 +38,8 @@ export interface HabitLog {
   user_id: string;
   date: string;
   habit_key: string;
-  amount: number;
+  completed: boolean;
+  amount: number | null; // null for checkbox mode, number for goal/manual
   created_at: string;
 }
 

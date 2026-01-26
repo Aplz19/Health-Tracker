@@ -6,6 +6,8 @@ import {
   Wine,
   Snowflake,
   Cigarette,
+  Zap,
+  Coffee,
 } from "lucide-react";
 import type { HabitDefinition } from "@/types/habits";
 
@@ -71,6 +73,24 @@ export const HABIT_DEFINITIONS: HabitDefinition[] = [
     icon: Cigarette,
     color: "text-gray-500",
     defaultGoal: 1,
+    step: 1,
+  },
+  {
+    key: "energy_drink",
+    label: "Energy Drink",
+    unit: "drinks",
+    icon: Zap,
+    color: "text-yellow-500",
+    defaultGoal: 1,
+    step: 1,
+  },
+  {
+    key: "coffee",
+    label: "Coffee",
+    unit: "cups",
+    icon: Coffee,
+    color: "text-amber-700",
+    defaultGoal: 2,
     step: 1,
   },
 ];

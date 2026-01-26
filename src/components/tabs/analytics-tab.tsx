@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { MetricCard } from "@/components/analytics/metric-card";
 import { MetricDetailSheet } from "@/components/analytics/metric-detail-sheet";
 import { useAnalytics, TIME_RANGE_OPTIONS, type TimeRange } from "@/hooks/use-analytics";
+import { useAnalyticsPreferencesContext } from "@/contexts/analytics-preferences-context";
 
 type MetricType =
   | "calories" | "protein" | "carbs" | "fat"
@@ -30,6 +31,9 @@ export function AnalyticsTab() {
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
   const [selectedMetric, setSelectedMetric] = useState<MetricConfig | null>(null);
   const { data, isLoading } = useAnalytics(timeRange);
+  const { getEnabledMetrics, isLoading: prefsLoading } = useAnalyticsPreferencesContext();
+
+  const enabledMetrics = getEnabledMetrics();
 
   // Prepare all metric data
   const allMetricData = useMemo(() => ({
@@ -87,144 +91,50 @@ export function AnalyticsTab() {
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-6">
-          {isLoading ? (
+        <div className="p-4 space-y-3">
+          {isLoading || prefsLoading ? (
             <div className="text-center text-sm text-muted-foreground py-12">
               Loading analytics...
             </div>
+          ) : enabledMetrics.length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-12">
+              No metrics enabled. Go to Settings → Analytics to choose metrics.
+            </div>
           ) : (
-            <>
-              {/* Nutrition Section */}
-              <section>
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Nutrition
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <MetricCard
-                    title="Calories"
-                    data={allMetricData.calories.map(d => d.value)}
-                    color="#f97316"
-                    onClick={() => openMetric({ type: "calories", title: "Calories", color: "#f97316", unit: " cal", decimals: 0 })}
-                  />
-                  <MetricCard
-                    title="Protein"
-                    data={allMetricData.protein.map(d => d.value)}
-                    unit="g"
-                    color="#3b82f6"
-                    onClick={() => openMetric({ type: "protein", title: "Protein", color: "#3b82f6", unit: "g", decimals: 0 })}
-                  />
-                  <MetricCard
-                    title="Carbs"
-                    data={allMetricData.carbs.map(d => d.value)}
-                    unit="g"
-                    color="#22c55e"
-                    onClick={() => openMetric({ type: "carbs", title: "Carbs", color: "#22c55e", unit: "g", decimals: 0 })}
-                  />
-                  <MetricCard
-                    title="Fat"
-                    data={allMetricData.fat.map(d => d.value)}
-                    unit="g"
-                    color="#eab308"
-                    onClick={() => openMetric({ type: "fat", title: "Fat", color: "#eab308", unit: "g", decimals: 0 })}
-                  />
-                </div>
-              </section>
+            <div className="grid grid-cols-2 gap-3">
+              {enabledMetrics.map((metric) => {
+                const key = metric.definition.key as MetricType;
+                const metricData = allMetricData[key] || [];
 
-              {/* Whoop Section */}
-              {data.whoop.length > 0 && (
-                <section>
-                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                    Whoop
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <MetricCard
-                      title="Recovery"
-                      data={allMetricData.recovery.map(d => d.value)}
-                      unit="%"
-                      color="#22c55e"
-                      onClick={() => openMetric({ type: "recovery", title: "Recovery", color: "#22c55e", unit: "%", decimals: 0 })}
-                    />
-                    <MetricCard
-                      title="HRV"
-                      data={allMetricData.hrv.map(d => d.value)}
-                      unit="ms"
-                      color="#8b5cf6"
-                      decimals={1}
-                      onClick={() => openMetric({ type: "hrv", title: "HRV", color: "#8b5cf6", unit: "ms", decimals: 1 })}
-                    />
-                    <MetricCard
-                      title="Resting HR"
-                      data={allMetricData.rhr.map(d => d.value)}
-                      unit="bpm"
-                      color="#ef4444"
-                      onClick={() => openMetric({ type: "rhr", title: "Resting Heart Rate", color: "#ef4444", unit: "bpm", decimals: 0 })}
-                    />
-                    <MetricCard
-                      title="Strain"
-                      data={allMetricData.strain.map(d => d.value)}
-                      color="#f97316"
-                      decimals={1}
-                      onClick={() => openMetric({ type: "strain", title: "Strain", color: "#f97316", unit: "", decimals: 1 })}
-                    />
-                    <MetricCard
-                      title="Sleep Score"
-                      data={allMetricData.sleepScore.map(d => d.value)}
-                      unit="%"
-                      color="#6366f1"
-                      onClick={() => openMetric({ type: "sleepScore", title: "Sleep Score", color: "#6366f1", unit: "%", decimals: 0 })}
-                    />
-                    <MetricCard
-                      title="Sleep Duration"
-                      data={allMetricData.sleepDuration.map(d => d.value)}
-                      unit="hrs"
-                      color="#0ea5e9"
-                      decimals={1}
-                      onClick={() => openMetric({ type: "sleepDuration", title: "Sleep Duration", color: "#0ea5e9", unit: "hrs", decimals: 1 })}
-                    />
-                  </div>
-                </section>
-              )}
+                // Skip Whoop metrics if no Whoop data
+                if (metric.definition.category === "whoop" && data.whoop.length === 0) {
+                  return null;
+                }
 
-              {/* Exercise Section */}
-              <section>
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Exercise
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <MetricCard
-                    title="Workouts"
-                    data={allMetricData.workouts.map(d => d.value)}
-                    color="#ec4899"
-                    onClick={() => openMetric({ type: "workouts", title: "Workouts", color: "#ec4899", unit: "", decimals: 0 })}
-                  />
-                  <MetricCard
-                    title="Volume"
-                    data={allMetricData.volume.map(d => d.value)}
-                    unit="lbs"
-                    color="#14b8a6"
-                    onClick={() => openMetric({ type: "volume", title: "Total Volume", color: "#14b8a6", unit: "lbs", decimals: 0 })}
-                  />
-                </div>
-              </section>
+                // Skip creatine if no data
+                if (key === "creatine" && data.creatine.length === 0) {
+                  return null;
+                }
 
-              {/* Supplements Section */}
-              {data.creatine.length > 0 && (
-                <section>
-                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                    Supplements
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <MetricCard
-                      title="Creatine"
-                      data={allMetricData.creatine.map(d => d.value)}
-                      unit="g"
-                      color="#a855f7"
-                      onClick={() => openMetric({ type: "creatine", title: "Creatine", color: "#a855f7", unit: "g", decimals: 0 })}
-                    />
-                  </div>
-                </section>
-              )}
-            </>
+                return (
+                  <MetricCard
+                    key={key}
+                    title={metric.definition.label}
+                    data={metricData.map(d => d.value)}
+                    unit={metric.definition.unit.trim() || undefined}
+                    color={metric.definition.color}
+                    decimals={metric.definition.decimals}
+                    onClick={() => openMetric({
+                      type: key,
+                      title: metric.definition.label,
+                      color: metric.definition.color,
+                      unit: metric.definition.unit,
+                      decimals: metric.definition.decimals,
+                    })}
+                  />
+                );
+              })}
+            </div>
           )}
         </div>
       </ScrollArea>
