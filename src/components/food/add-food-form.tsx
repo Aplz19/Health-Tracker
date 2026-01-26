@@ -75,6 +75,7 @@ const initialFormData: FoodInsert = {
   fdc_id: null,
   barcode: null,
   source: "manual",
+  embedding: null,
 };
 
 function foodToFormData(food: Food): FoodInsert {
@@ -102,6 +103,7 @@ function foodToFormData(food: Food): FoodInsert {
     fdc_id: food.fdc_id,
     barcode: food.barcode,
     source: food.source,
+    embedding: food.embedding,
   };
 }
 

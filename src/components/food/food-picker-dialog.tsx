@@ -358,6 +358,7 @@ export function FoodPickerDialog({
           fdc_id: null,
           barcode: selectedFood.barcode,
           source: selectedFood.source,
+          embedding: null,
         });
       } catch (err) {
         console.error("Failed to save food:", err);

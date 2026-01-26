@@ -67,6 +67,7 @@ export function FoodPanel() {
       fdc_id: null,
       barcode: food.barcode,
       source: food.source,
+      embedding: null,
     });
   };
 
