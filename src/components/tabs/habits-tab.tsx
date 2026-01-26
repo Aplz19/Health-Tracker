@@ -192,7 +192,7 @@ export function HabitsTab() {
 
   const {
     getLogForHabit,
-    updateHabitLog,
+    updateHabitAmount: updateHabitLog,
     toggleHabit,
     isLoading: isLogsLoading,
   } = useHabitLogs(dateString);
