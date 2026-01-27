@@ -118,6 +118,14 @@ export const SUPPLEMENT_LIBRARY: SupplementLibraryItem[] = [
   { name: "DHEA", category: "Hormones", defaultAmount: 25, unit: "mg" },
   { name: "Fenugreek", category: "Hormones", defaultAmount: 600, unit: "mg" },
 
+  // Peptides
+  { name: "Melanotan I", category: "Peptides", defaultAmount: 0.5, unit: "mg" },
+  { name: "Melanotan II", category: "Peptides", defaultAmount: 0.25, unit: "mg" },
+  { name: "Retatrutide", category: "Peptides", defaultAmount: 5, unit: "mg" },
+  { name: "Tirzepatide", category: "Peptides", defaultAmount: 5, unit: "mg" },
+  { name: "BPC-157", category: "Peptides", defaultAmount: 250, unit: "mcg" },
+  { name: "TB-500", category: "Peptides", defaultAmount: 2.5, unit: "mg" },
+
   // Other
   { name: "Black Seed Oil", category: "Other", defaultAmount: 5, unit: "ml" },
   { name: "CBD Oil", category: "Other", defaultAmount: 25, unit: "mg" },
