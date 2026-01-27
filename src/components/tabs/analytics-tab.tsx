@@ -9,9 +9,19 @@ import { useAnalytics, TIME_RANGE_OPTIONS, type TimeRange } from "@/hooks/use-an
 import { useAnalyticsPreferencesContext } from "@/contexts/analytics-preferences-context";
 
 type MetricType =
+  // Nutrition - Macros
   | "calories" | "protein" | "carbs" | "fat"
+  | "saturatedFat" | "transFat" | "polyunsaturatedFat" | "monounsaturatedFat"
+  | "fiber" | "sugar" | "addedSugar" | "sodium"
+  // Nutrition - Micronutrients
+  | "vitaminA" | "vitaminC" | "vitaminD" | "calcium" | "iron"
+  // Whoop
   | "recovery" | "hrv" | "rhr" | "sleepScore" | "sleepDuration" | "strain"
-  | "creatine" | "workouts" | "volume";
+  | "spo2" | "skinTemp" | "kilojoules" | "avgHeartRate" | "maxHeartRate"
+  // Exercise
+  | "workouts" | "volume" | "sets" | "cardioSessions" | "cardioMinutes"
+  // Supplements
+  | "creatine";
 
 interface MetricConfig {
   type: MetricType;
@@ -37,19 +47,45 @@ export function AnalyticsTab() {
 
   // Prepare all metric data
   const allMetricData = useMemo(() => ({
+    // Nutrition - Macros
     calories: data.nutrition.map(d => ({ date: d.date, value: d.calories })),
     protein: data.nutrition.map(d => ({ date: d.date, value: d.protein })),
     carbs: data.nutrition.map(d => ({ date: d.date, value: d.carbs })),
     fat: data.nutrition.map(d => ({ date: d.date, value: d.fat })),
+    saturatedFat: data.nutrition.map(d => ({ date: d.date, value: d.saturatedFat })),
+    transFat: data.nutrition.map(d => ({ date: d.date, value: d.transFat })),
+    polyunsaturatedFat: data.nutrition.map(d => ({ date: d.date, value: d.polyunsaturatedFat })),
+    monounsaturatedFat: data.nutrition.map(d => ({ date: d.date, value: d.monounsaturatedFat })),
+    fiber: data.nutrition.map(d => ({ date: d.date, value: d.fiber })),
+    sugar: data.nutrition.map(d => ({ date: d.date, value: d.sugar })),
+    addedSugar: data.nutrition.map(d => ({ date: d.date, value: d.addedSugar })),
+    sodium: data.nutrition.map(d => ({ date: d.date, value: d.sodium })),
+    // Nutrition - Micronutrients
+    vitaminA: data.nutrition.map(d => ({ date: d.date, value: d.vitaminA })),
+    vitaminC: data.nutrition.map(d => ({ date: d.date, value: d.vitaminC })),
+    vitaminD: data.nutrition.map(d => ({ date: d.date, value: d.vitaminD })),
+    calcium: data.nutrition.map(d => ({ date: d.date, value: d.calcium })),
+    iron: data.nutrition.map(d => ({ date: d.date, value: d.iron })),
+    // Whoop
     recovery: data.whoop.filter(d => d.recovery !== null).map(d => ({ date: d.date, value: d.recovery! })),
     hrv: data.whoop.filter(d => d.hrv !== null).map(d => ({ date: d.date, value: d.hrv! })),
     rhr: data.whoop.filter(d => d.rhr !== null).map(d => ({ date: d.date, value: d.rhr! })),
     sleepScore: data.whoop.filter(d => d.sleepScore !== null).map(d => ({ date: d.date, value: d.sleepScore! })),
     sleepDuration: data.whoop.filter(d => d.sleepDuration !== null).map(d => ({ date: d.date, value: d.sleepDuration! / 60 })),
     strain: data.whoop.filter(d => d.strain !== null).map(d => ({ date: d.date, value: d.strain! })),
-    creatine: data.creatine.map(d => ({ date: d.date, value: d.amount })),
+    spo2: data.whoop.filter(d => d.spo2 !== null).map(d => ({ date: d.date, value: d.spo2! })),
+    skinTemp: data.whoop.filter(d => d.skinTemp !== null).map(d => ({ date: d.date, value: d.skinTemp! })),
+    kilojoules: data.whoop.filter(d => d.kilojoules !== null).map(d => ({ date: d.date, value: d.kilojoules! })),
+    avgHeartRate: data.whoop.filter(d => d.avgHeartRate !== null).map(d => ({ date: d.date, value: d.avgHeartRate! })),
+    maxHeartRate: data.whoop.filter(d => d.maxHeartRate !== null).map(d => ({ date: d.date, value: d.maxHeartRate! })),
+    // Exercise
     workouts: data.exercise.map(d => ({ date: d.date, value: d.workouts })),
     volume: data.exercise.map(d => ({ date: d.date, value: d.totalVolume })),
+    sets: data.exercise.map(d => ({ date: d.date, value: d.totalSets })),
+    cardioSessions: data.cardio.map(d => ({ date: d.date, value: d.sessions })),
+    cardioMinutes: data.cardio.map(d => ({ date: d.date, value: d.totalMinutes })),
+    // Supplements
+    creatine: data.creatine.map(d => ({ date: d.date, value: d.amount })),
   }), [data]);
 
   const openMetric = (config: MetricConfig) => {

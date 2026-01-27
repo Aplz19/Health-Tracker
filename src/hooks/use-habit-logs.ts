@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase/client";
 import type { HabitLog } from "@/types/habits";
 
-export function useHabitLogs(date: string) {
+export function useHabitLogs(date: string, enabledHabitKeys: string[] = []) {
   const [logs, setLogs] = useState<HabitLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const initializedRef = useRef<string | null>(null);
+  // Stabilize the keys for dependency comparison
+  const keysString = enabledHabitKeys.join(",");
 
   const fetchLogs = useCallback(async () => {
     setIsLoading(true);
@@ -23,13 +26,42 @@ export function useHabitLogs(date: string) {
         .eq("date", date);
 
       if (error) throw error;
-      setLogs((data as HabitLog[]) || []);
+      const existingLogs = (data as HabitLog[]) || [];
+      setLogs(existingLogs);
+
+      // Auto-create "NO" records for enabled habits that don't have a log yet
+      // Only do this once per date to avoid duplicate inserts
+      const keys = keysString ? keysString.split(",") : [];
+      if (keys.length > 0 && initializedRef.current !== date) {
+        const existingKeys = new Set(existingLogs.map((l) => l.habit_key));
+        const missingKeys = keys.filter((key) => !existingKeys.has(key));
+
+        if (missingKeys.length > 0) {
+          const newLogs = missingKeys.map((habit_key) => ({
+            user_id: user.id,
+            date,
+            habit_key,
+            completed: false,
+            amount: null,
+          }));
+
+          const { data: insertedData, error: insertError } = await supabase
+            .from("habit_logs")
+            .insert(newLogs)
+            .select();
+
+          if (!insertError && insertedData) {
+            setLogs((prev) => [...prev, ...(insertedData as HabitLog[])]);
+          }
+        }
+        initializedRef.current = date;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch habit logs");
     } finally {
       setIsLoading(false);
     }
-  }, [date]);
+  }, [date, keysString]);
 
   useEffect(() => {
     fetchLogs();

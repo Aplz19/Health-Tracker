@@ -21,6 +21,19 @@ export interface DailyNutrition {
   protein: number;
   carbs: number;
   fat: number;
+  saturatedFat: number;
+  transFat: number;
+  polyunsaturatedFat: number;
+  monounsaturatedFat: number;
+  sodium: number;
+  fiber: number;
+  sugar: number;
+  addedSugar: number;
+  vitaminA: number;
+  vitaminC: number;
+  vitaminD: number;
+  calcium: number;
+  iron: number;
 }
 
 export interface DailyWhoop {
@@ -31,6 +44,11 @@ export interface DailyWhoop {
   sleepScore: number | null;
   sleepDuration: number | null;
   strain: number | null;
+  spo2: number | null;
+  skinTemp: number | null;
+  kilojoules: number | null;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
 }
 
 export interface DailyCreatine {
@@ -45,11 +63,18 @@ export interface DailyExercise {
   totalVolume: number;
 }
 
+export interface DailyCardio {
+  date: string;
+  sessions: number;
+  totalMinutes: number;
+}
+
 export interface AnalyticsData {
   nutrition: DailyNutrition[];
   whoop: DailyWhoop[];
   creatine: DailyCreatine[];
   exercise: DailyExercise[];
+  cardio: DailyCardio[];
 }
 
 export interface MetricStats {
@@ -74,6 +99,7 @@ export function useAnalytics(range: TimeRange = "7d") {
     whoop: [],
     creatine: [],
     exercise: [],
+    cardio: [],
   });
   const [isLoading, setIsLoading] = useState(true);
 
@@ -94,7 +120,20 @@ export function useAnalytics(range: TimeRange = "7d") {
             calories,
             protein,
             total_carbohydrates,
-            total_fat
+            total_fat,
+            saturated_fat,
+            trans_fat,
+            polyunsaturated_fat,
+            monounsaturated_fat,
+            sodium,
+            fiber,
+            sugar,
+            added_sugar,
+            vitamin_a,
+            vitamin_c,
+            vitamin_d,
+            calcium,
+            iron
           )
         `)
         .gte("date", startDate)
@@ -105,13 +144,46 @@ export function useAnalytics(range: TimeRange = "7d") {
       foodLogs?.forEach((log: any) => {
         const date = log.date;
         if (!nutritionByDate[date]) {
-          nutritionByDate[date] = { date, calories: 0, protein: 0, carbs: 0, fat: 0 };
+          nutritionByDate[date] = {
+            date,
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+            saturatedFat: 0,
+            transFat: 0,
+            polyunsaturatedFat: 0,
+            monounsaturatedFat: 0,
+            sodium: 0,
+            fiber: 0,
+            sugar: 0,
+            addedSugar: 0,
+            vitaminA: 0,
+            vitaminC: 0,
+            vitaminD: 0,
+            calcium: 0,
+            iron: 0,
+          };
         }
         const multiplier = log.servings;
-        nutritionByDate[date].calories += log.food.calories * multiplier;
-        nutritionByDate[date].protein += log.food.protein * multiplier;
-        nutritionByDate[date].carbs += log.food.total_carbohydrates * multiplier;
-        nutritionByDate[date].fat += log.food.total_fat * multiplier;
+        const f = log.food;
+        nutritionByDate[date].calories += (f.calories || 0) * multiplier;
+        nutritionByDate[date].protein += (f.protein || 0) * multiplier;
+        nutritionByDate[date].carbs += (f.total_carbohydrates || 0) * multiplier;
+        nutritionByDate[date].fat += (f.total_fat || 0) * multiplier;
+        nutritionByDate[date].saturatedFat += (f.saturated_fat || 0) * multiplier;
+        nutritionByDate[date].transFat += (f.trans_fat || 0) * multiplier;
+        nutritionByDate[date].polyunsaturatedFat += (f.polyunsaturated_fat || 0) * multiplier;
+        nutritionByDate[date].monounsaturatedFat += (f.monounsaturated_fat || 0) * multiplier;
+        nutritionByDate[date].sodium += (f.sodium || 0) * multiplier;
+        nutritionByDate[date].fiber += (f.fiber || 0) * multiplier;
+        nutritionByDate[date].sugar += (f.sugar || 0) * multiplier;
+        nutritionByDate[date].addedSugar += (f.added_sugar || 0) * multiplier;
+        nutritionByDate[date].vitaminA += (f.vitamin_a || 0) * multiplier;
+        nutritionByDate[date].vitaminC += (f.vitamin_c || 0) * multiplier;
+        nutritionByDate[date].vitaminD += (f.vitamin_d || 0) * multiplier;
+        nutritionByDate[date].calcium += (f.calcium || 0) * multiplier;
+        nutritionByDate[date].iron += (f.iron || 0) * multiplier;
       });
 
       // Fetch Whoop data
@@ -130,6 +202,11 @@ export function useAnalytics(range: TimeRange = "7d") {
         sleepScore: d.sleep_score,
         sleepDuration: d.sleep_duration_minutes,
         strain: d.strain_score,
+        spo2: d.spo2_percentage,
+        skinTemp: d.skin_temp_celsius,
+        kilojoules: d.kilojoules,
+        avgHeartRate: d.avg_heart_rate,
+        maxHeartRate: d.max_heart_rate,
       })) || [];
 
       // Fetch creatine data
@@ -176,6 +253,24 @@ export function useAnalytics(range: TimeRange = "7d") {
         });
       });
 
+      // Fetch cardio data (treadmill sessions)
+      const { data: cardioLogs } = await supabase
+        .from("treadmill_sessions")
+        .select("date, duration_minutes")
+        .gte("date", startDate)
+        .lte("date", endDate);
+
+      // Aggregate cardio by date
+      const cardioByDate: Record<string, DailyCardio> = {};
+      cardioLogs?.forEach((log: any) => {
+        const date = log.date;
+        if (!cardioByDate[date]) {
+          cardioByDate[date] = { date, sessions: 0, totalMinutes: 0 };
+        }
+        cardioByDate[date].sessions += 1;
+        cardioByDate[date].totalMinutes += log.duration_minutes || 0;
+      });
+
       // Fill in missing dates with zeros for nutrition
       const allDates: string[] = [];
       for (let i = days - 1; i >= 0; i--) {
@@ -188,6 +283,19 @@ export function useAnalytics(range: TimeRange = "7d") {
         protein: 0,
         carbs: 0,
         fat: 0,
+        saturatedFat: 0,
+        transFat: 0,
+        polyunsaturatedFat: 0,
+        monounsaturatedFat: 0,
+        sodium: 0,
+        fiber: 0,
+        sugar: 0,
+        addedSugar: 0,
+        vitaminA: 0,
+        vitaminC: 0,
+        vitaminD: 0,
+        calcium: 0,
+        iron: 0,
       });
 
       const exercise = allDates.map(date => exerciseByDate[date] || {
@@ -197,7 +305,13 @@ export function useAnalytics(range: TimeRange = "7d") {
         totalVolume: 0,
       });
 
-      setData({ nutrition, whoop, creatine, exercise });
+      const cardio = allDates.map(date => cardioByDate[date] || {
+        date,
+        sessions: 0,
+        totalMinutes: 0,
+      });
+
+      setData({ nutrition, whoop, creatine, exercise, cardio });
     } catch (error) {
       console.error("Failed to fetch analytics data:", error);
     } finally {

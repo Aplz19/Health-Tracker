@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useDate } from "@/contexts/date-context";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
@@ -189,13 +189,19 @@ export function HabitsTab() {
 
   const { getEnabledHabits, isLoading: isPrefsLoading } = useHabitPreferencesContext();
   const enabledHabits = getEnabledHabits();
+  // Stabilize the keys array by joining to string - prevents unnecessary re-renders
+  const enabledHabitKeysStr = enabledHabits.map((h) => h.definition.key).join(",");
+  const enabledHabitKeys = useMemo(
+    () => enabledHabitKeysStr ? enabledHabitKeysStr.split(",") : [],
+    [enabledHabitKeysStr]
+  );
 
   const {
     getLogForHabit,
     updateHabitAmount: updateHabitLog,
     toggleHabit,
     isLoading: isLogsLoading,
-  } = useHabitLogs(dateString);
+  } = useHabitLogs(dateString, enabledHabitKeys);
 
   const isLoading = isPrefsLoading || isLogsLoading;
 
