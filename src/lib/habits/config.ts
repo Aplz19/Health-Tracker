@@ -8,6 +8,7 @@ import {
   Cigarette,
   Zap,
   Coffee,
+  UtensilsCrossed,
 } from "lucide-react";
 import type { HabitDefinition } from "@/types/habits";
 
@@ -91,6 +92,15 @@ export const HABIT_DEFINITIONS: HabitDefinition[] = [
     icon: Coffee,
     color: "text-amber-700",
     defaultGoal: 2,
+    step: 1,
+  },
+  {
+    key: "ate_out",
+    label: "Ate Out",
+    unit: "meals",
+    icon: UtensilsCrossed,
+    color: "text-rose-500",
+    defaultGoal: 1,
     step: 1,
   },
 ];
