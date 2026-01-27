@@ -6,9 +6,12 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -18,6 +21,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
 import { GripVertical, Settings2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -248,9 +252,20 @@ export function HabitsSettings() {
   } = useHabitPreferencesContext();
 
   const [configHabitKey, setConfigHabitKey] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200,
+        tolerance: 5,
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
@@ -260,7 +275,12 @@ export function HabitsSettings() {
   const enabledHabits = getEnabledHabits();
   const disabledHabits = allHabits.filter((h) => !h.isEnabled);
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveId(null);
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
@@ -275,6 +295,10 @@ export function HabitsSettings() {
       reorderHabits(newOrder.map((h) => h.definition.key));
     }
   };
+
+  const activeHabit = activeId
+    ? enabledHabits.find((h) => h.definition.key === activeId)
+    : null;
 
   if (isLoading) {
     return (
@@ -302,7 +326,9 @@ export function HabitsSettings() {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
           >
             <SortableContext
               items={enabledHabits.map((h) => h.definition.key)}
@@ -321,6 +347,33 @@ export function HabitsSettings() {
                 ))}
               </div>
             </SortableContext>
+            <DragOverlay>
+              {activeHabit ? (() => {
+                const Icon = activeHabit.definition.icon;
+                return (
+                  <div className="flex items-center justify-between rounded-lg border bg-card px-3 py-2 shadow-lg">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1 text-muted-foreground">
+                        <GripVertical className="h-4 w-4" />
+                      </div>
+                      <Icon className={`h-5 w-5 ${activeHabit.definition.color}`} />
+                      <span className="font-medium">
+                        {activeHabit.definition.label}
+                      </span>
+                      <span className="text-xs text-muted-foreground capitalize">
+                        ({activeHabit.trackingMode})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Settings2 className="h-4 w-4" />
+                      </Button>
+                      <Switch checked={activeHabit.isEnabled} />
+                    </div>
+                  </div>
+                );
+              })() : null}
+            </DragOverlay>
           </DndContext>
         )}
       </div>

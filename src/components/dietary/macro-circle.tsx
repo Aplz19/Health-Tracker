@@ -17,23 +17,32 @@ export function MacroCircle({
   color,
   size = 70,
 }: MacroCircleProps) {
-  const percentage = goal > 0 ? Math.min((current / goal) * 100, 100) : 0;
   const strokeWidth = 5;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+  // Calculate percentages
+  const totalPercentage = goal > 0 ? (current / goal) * 100 : 0;
+  const basePercentage = Math.min(totalPercentage, 100);
+  const overPercentage = Math.max(totalPercentage - 100, 0);
+
+  // Cap overflow at 100% (so max is 200% total = full circle of overflow)
+  const cappedOverPercentage = Math.min(overPercentage, 100);
+
+  const baseStrokeDashoffset = circumference - (basePercentage / 100) * circumference;
+  const overStrokeDashoffset = circumference - (cappedOverPercentage / 100) * circumference;
 
   const isOver = current > goal;
 
   return (
     <div className="flex flex-col items-center">
       <div className="relative" style={{ width: size, height: size }}>
-        {/* Background circle */}
         <svg
           className="absolute inset-0 -rotate-90"
           width={size}
           height={size}
         >
+          {/* Background circle */}
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -43,19 +52,34 @@ export function MacroCircle({
             strokeWidth={strokeWidth}
             className="text-muted/30"
           />
-          {/* Progress circle */}
+          {/* Base progress circle (normal color, up to 100%) */}
           <circle
             cx={size / 2}
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke={isOver ? "#ef4444" : color}
+            stroke={color}
             strokeWidth={strokeWidth}
             strokeLinecap="round"
             strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
+            strokeDashoffset={baseStrokeDashoffset}
             className="transition-all duration-500 ease-out"
           />
+          {/* Overflow circle (red, shows amount over 100%) */}
+          {isOver && (
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={overStrokeDashoffset}
+              className="transition-all duration-500 ease-out"
+            />
+          )}
         </svg>
         {/* Center text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
