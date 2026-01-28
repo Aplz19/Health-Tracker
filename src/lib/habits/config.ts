@@ -9,6 +9,8 @@ import {
   Zap,
   Coffee,
   UtensilsCrossed,
+  Calculator,
+  Layers,
 } from "lucide-react";
 import type { HabitDefinition } from "@/types/habits";
 
@@ -102,6 +104,24 @@ export const HABIT_DEFINITIONS: HabitDefinition[] = [
     color: "text-rose-500",
     defaultGoal: 1,
     step: 1,
+  },
+  {
+    key: "math_academy",
+    label: "Math Academy",
+    unit: "min",
+    icon: Calculator,
+    color: "text-indigo-500",
+    defaultGoal: 30,
+    step: 5,
+  },
+  {
+    key: "anki_review",
+    label: "Anki Review",
+    unit: "cards",
+    icon: Layers,
+    color: "text-sky-500",
+    defaultGoal: 50,
+    step: 10,
   },
 ];
 
