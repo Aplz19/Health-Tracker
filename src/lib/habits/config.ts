@@ -108,11 +108,11 @@ export const HABIT_DEFINITIONS: HabitDefinition[] = [
   {
     key: "math_academy",
     label: "Math Academy",
-    unit: "min",
+    unit: "XP",
     icon: Calculator,
     color: "text-indigo-500",
-    defaultGoal: 30,
-    step: 5,
+    defaultGoal: 100,
+    step: 10,
   },
   {
     key: "anki_review",
