@@ -52,7 +52,7 @@ export function useExerciseLogs(date: string) {
   }, [date]);
 
   // Add a new exercise log (creates the log + first set)
-  const addLog = async (exerciseId: string) => {
+  const addLog = async (exerciseId: string, sessionId?: string) => {
     setError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -65,6 +65,7 @@ export function useExerciseLogs(date: string) {
           user_id: user.id,
           date,
           exercise_id: exerciseId,
+          session_id: sessionId || null,
         })
         .select(`
           *,

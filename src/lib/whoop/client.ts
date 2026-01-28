@@ -5,6 +5,7 @@ import type {
   WhoopCycle,
   WhoopRecovery,
   WhoopSleep,
+  WhoopWorkout,
   WhoopPaginatedResponse,
 } from "./types";
 
@@ -229,6 +230,20 @@ export async function fetchSleep(
 ): Promise<WhoopSleep[]> {
   return fetchAllPages<WhoopSleep>(
     "/developer/v2/activity/sleep",
+    accessToken,
+    startDate,
+    endDate
+  );
+}
+
+// Fetch workouts for date range (v2 API)
+export async function fetchWorkouts(
+  accessToken: string,
+  startDate: string,
+  endDate: string
+): Promise<WhoopWorkout[]> {
+  return fetchAllPages<WhoopWorkout>(
+    "/developer/v2/activity/workout",
     accessToken,
     startDate,
     endDate

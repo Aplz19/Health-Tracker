@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useExerciseLogs } from "@/hooks/use-exercise-logs";
 import { useTreadmill } from "@/hooks/use-treadmill";
+import { useWorkoutSessions } from "@/hooks/use-workout-sessions";
 import { ExercisePickerDialog } from "@/components/exercise/exercise-picker-dialog";
 import { CardioSection } from "@/components/workout/cardio-section";
+import { SessionHeader } from "@/components/workout/session-header";
 import { CATEGORY_LABELS } from "@/lib/exercise-categories";
 import type { ExerciseLogWithDetails, ExerciseSetWithDetails } from "@/hooks/use-exercise-logs";
 import type { CardioExerciseType } from "@/lib/supabase/types";
@@ -214,10 +216,26 @@ export function WorkoutTab() {
     updateSession: updateCardioSession,
     deleteSession: deleteCardioSession,
   } = useTreadmill(dateString);
+  const {
+    session: workoutSession,
+    isLoading: isSessionLoading,
+    startSession,
+    linkWhoopWorkout,
+    unlinkWhoopWorkout,
+  } = useWorkoutSessions(dateString);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const handleAddCardioSession = async (exerciseType: CardioExerciseType) => {
     await addCardioSession(exerciseType);
+  };
+
+  const handleStartSession = async () => {
+    await startSession();
+  };
+
+  const handleAddExercise = async (exerciseId: string) => {
+    // Pass session_id if we have an active session
+    await addLog(exerciseId, workoutSession?.id);
   };
 
   return (
@@ -225,6 +243,15 @@ export function WorkoutTab() {
       <div className="text-center text-sm text-muted-foreground">
         {format(selectedDate, "EEEE, MMMM d, yyyy")}
       </div>
+
+      {/* Session Header */}
+      <SessionHeader
+        session={workoutSession}
+        isLoading={isSessionLoading}
+        onStartSession={handleStartSession}
+        onLinkWhoop={linkWhoopWorkout}
+        onUnlinkWhoop={unlinkWhoopWorkout}
+      />
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -301,7 +328,7 @@ export function WorkoutTab() {
       <ExercisePickerDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
-        onSelectExercise={addLog}
+        onSelectExercise={handleAddExercise}
       />
     </div>
   );

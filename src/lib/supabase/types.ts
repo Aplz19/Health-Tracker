@@ -94,6 +94,7 @@ export interface ExerciseLog {
   user_id: string;
   date: string;
   exercise_id: string;
+  session_id: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -153,6 +154,40 @@ export interface WhoopData {
 }
 
 export type TreadmillSessionInsert = Omit<TreadmillSession, "id" | "created_at">;
+
+// Workout Sessions - groups exercises together
+export interface WorkoutSession {
+  id: string;
+  user_id: string;
+  date: string;
+  notes: string | null;
+  // Whoop data (filled when linked)
+  whoop_workout_id: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  strain: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type WorkoutSessionInsert = Omit<WorkoutSession, "id" | "created_at" | "updated_at">;
+
+// Cached Whoop workouts for linking UI
+export interface CachedWhoopWorkout {
+  id: string;
+  user_id: string;
+  whoop_workout_id: string;
+  start_time: string;
+  end_time: string;
+  sport_id: number | null;
+  strain: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  raw_data: Record<string, unknown> | null;
+  synced_at: string;
+}
 
 // Re-export daily summary types for convenience
 export type { DailySummary, DailySummaryData } from "@/lib/daily-summary/types";
