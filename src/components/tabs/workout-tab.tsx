@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Dumbbell, Plus, Trash2, MessageSquare } from "lucide-react";
 import { useDate } from "@/contexts/date-context";
 import { format } from "date-fns";
@@ -11,7 +11,8 @@ import { useTreadmill } from "@/hooks/use-treadmill";
 import { useWorkoutSessions } from "@/hooks/use-workout-sessions";
 import { ExercisePickerDialog } from "@/components/exercise/exercise-picker-dialog";
 import { CardioSection } from "@/components/workout/cardio-section";
-import { SessionHeader } from "@/components/workout/session-header";
+import { AddWorkoutDialog } from "@/components/workout/add-workout-dialog";
+import { WorkoutSessionCard } from "@/components/workout/workout-session-card";
 import { CATEGORY_LABELS } from "@/lib/exercise-categories";
 import type { ExerciseLogWithDetails, ExerciseSetWithDetails } from "@/hooks/use-exercise-logs";
 import type { CardioExerciseType } from "@/lib/supabase/types";
@@ -207,7 +208,7 @@ export function WorkoutTab() {
   const { selectedDate } = useDate();
   const dateString = format(selectedDate, "yyyy-MM-dd");
 
-  const { logs, isLoading, addLog, deleteLog, addSet, updateSet, deleteSet } =
+  const { logs, isLoading, addLog, deleteLog, addSet, updateSet, deleteSet, refetch: refetchLogs } =
     useExerciseLogs(dateString);
   const {
     sessions: cardioSessions,
@@ -217,25 +218,52 @@ export function WorkoutTab() {
     deleteSession: deleteCardioSession,
   } = useTreadmill(dateString);
   const {
-    session: workoutSession,
+    sessions: workoutSessions,
     isLoading: isSessionLoading,
     startSession,
+    updateSessionNotes,
     linkWhoopWorkout,
     unlinkWhoopWorkout,
+    deleteSession: deleteWorkoutSession,
   } = useWorkoutSessions(dateString);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isExerciseDialogOpen, setIsExerciseDialogOpen] = useState(false);
+  const [isWorkoutDialogOpen, setIsWorkoutDialogOpen] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  // Group exercises by session_id
+  const exercisesBySession = useMemo(() => {
+    const grouped = new Map<string, ExerciseLogWithDetails[]>();
+    logs.forEach((log) => {
+      if (log.session_id) {
+        if (!grouped.has(log.session_id)) {
+          grouped.set(log.session_id, []);
+        }
+        grouped.get(log.session_id)!.push(log);
+      }
+    });
+    return grouped;
+  }, [logs]);
 
   const handleAddCardioSession = async (exerciseType: CardioExerciseType) => {
     await addCardioSession(exerciseType);
   };
 
-  const handleStartSession = async () => {
-    await startSession();
+  const handleCreateWorkout = async (name: string, startTime: string) => {
+    await startSession(name, startTime);
   };
 
   const handleAddExercise = async (exerciseId: string) => {
-    // Pass session_id if we have an active session
-    await addLog(exerciseId, workoutSession?.id);
+    if (currentSessionId) {
+      await addLog(exerciseId, currentSessionId);
+    }
+    setIsExerciseDialogOpen(false);
+    setCurrentSessionId(null);
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    await deleteWorkoutSession(sessionId);
+    // Refetch logs to update UI after cascade delete
+    await refetchLogs();
   };
 
   return (
@@ -244,16 +272,7 @@ export function WorkoutTab() {
         {format(selectedDate, "EEEE, MMMM d, yyyy")}
       </div>
 
-      {/* Session Header */}
-      <SessionHeader
-        session={workoutSession}
-        isLoading={isSessionLoading}
-        onStartSession={handleStartSession}
-        onLinkWhoop={linkWhoopWorkout}
-        onUnlinkWhoop={unlinkWhoopWorkout}
-      />
-
-      {/* Header */}
+      {/* Header with Add Workout button */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Dumbbell className="h-5 w-5 text-primary" />
@@ -263,56 +282,58 @@ export function WorkoutTab() {
           size="sm"
           variant="outline"
           className="h-8"
-          onClick={() => setIsDialogOpen(true)}
+          onClick={() => setIsWorkoutDialogOpen(true)}
         >
           <Plus className="h-4 w-4 mr-1" />
-          Add Exercise
+          Add Workout
         </Button>
       </div>
 
       {/* Loading */}
-      {isLoading && (
+      {isSessionLoading && (
         <div className="text-center text-sm text-muted-foreground py-8">
           Loading...
         </div>
       )}
 
       {/* Empty State */}
-      {!isLoading && logs.length === 0 && (
+      {!isSessionLoading && workoutSessions.length === 0 && (
         <div className="rounded-lg border-2 border-dashed border-muted p-8 text-center">
-          <p className="text-sm text-muted-foreground mb-2">No exercises logged</p>
+          <p className="text-sm text-muted-foreground mb-2">No workouts yet</p>
           <p className="text-xs text-muted-foreground">
-            Tap &quot;Add Exercise&quot; to get started
+            Tap &quot;Add Workout&quot; to create your first workout session
           </p>
         </div>
       )}
 
-      {/* Exercise Cards */}
-      {!isLoading && logs.length > 0 && (
+      {/* Workout Session Cards */}
+      {!isSessionLoading && workoutSessions.length > 0 && (
         <div className="space-y-4">
-          {logs.map((log) => (
-            <ExerciseCard
-              key={log.id}
-              log={log}
-              onAddSet={() => addSet(log.id)}
-              onUpdateSet={updateSet}
-              onDeleteSet={(setId) => deleteSet(log.id, setId)}
-              onDeleteLog={() => deleteLog(log.id)}
+          {workoutSessions.map((session) => (
+            <WorkoutSessionCard
+              key={session.id}
+              session={session}
+              exercises={exercisesBySession.get(session.id) || []}
+              onUpdateName={updateSessionNotes}
+              onLinkWhoop={linkWhoopWorkout}
+              onUnlinkWhoop={unlinkWhoopWorkout}
+              onDelete={handleDeleteSession}
+              onAddExercise={() => {
+                setCurrentSessionId(session.id);
+                setIsExerciseDialogOpen(true);
+              }}
+              renderExerciseCard={(log) => (
+                <ExerciseCard
+                  log={log}
+                  onAddSet={() => addSet(log.id)}
+                  onUpdateSet={updateSet}
+                  onDeleteSet={(setId) => deleteSet(log.id, setId)}
+                  onDeleteLog={() => deleteLog(log.id)}
+                />
+              )}
             />
           ))}
         </div>
-      )}
-
-      {/* Add Exercise Button (when logs exist) */}
-      {!isLoading && logs.length > 0 && (
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={() => setIsDialogOpen(true)}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Exercise
-        </Button>
       )}
 
       {/* Cardio Section */}
@@ -324,10 +345,17 @@ export function WorkoutTab() {
         onDelete={deleteCardioSession}
       />
 
+      {/* Add Workout Dialog */}
+      <AddWorkoutDialog
+        open={isWorkoutDialogOpen}
+        onOpenChange={setIsWorkoutDialogOpen}
+        onConfirm={handleCreateWorkout}
+      />
+
       {/* Exercise Picker Dialog */}
       <ExercisePickerDialog
-        open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
+        open={isExerciseDialogOpen}
+        onOpenChange={setIsExerciseDialogOpen}
         onSelectExercise={handleAddExercise}
       />
     </div>

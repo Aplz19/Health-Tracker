@@ -5,11 +5,11 @@ import { supabase } from "@/lib/supabase/client";
 import type { WorkoutSession, CachedWhoopWorkout } from "@/lib/supabase/types";
 
 export function useWorkoutSessions(date: string) {
-  const [session, setSession] = useState<WorkoutSession | null>(null);
+  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSession = useCallback(async () => {
+  const fetchSessions = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -21,19 +21,19 @@ export function useWorkoutSessions(date: string) {
         .select("*")
         .eq("date", date)
         .eq("user_id", user.id)
-        .maybeSingle();
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
-      setSession(data);
+      setSessions(data || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch session");
+      setError(err instanceof Error ? err.message : "Failed to fetch sessions");
     } finally {
       setIsLoading(false);
     }
   }, [date]);
 
   // Create a new workout session for the date
-  const startSession = async (notes?: string): Promise<WorkoutSession> => {
+  const startSession = async (name?: string, startTime?: string): Promise<WorkoutSession> => {
     setError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -44,13 +44,14 @@ export function useWorkoutSessions(date: string) {
         .insert({
           user_id: user.id,
           date,
-          notes: notes || null,
+          notes: name || null,
+          start_time: startTime || new Date().toISOString(),
         })
         .select()
         .single();
 
       if (error) throw error;
-      setSession(data);
+      setSessions(prev => [...prev, data]);
       return data;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to start session";
@@ -59,18 +60,17 @@ export function useWorkoutSessions(date: string) {
     }
   };
 
-  // Update session notes
-  const updateNotes = async (notes: string | null) => {
-    if (!session) throw new Error("No active session");
+  // Update session notes (name)
+  const updateSessionNotes = async (sessionId: string, notes: string | null) => {
     setError(null);
     try {
       const { error } = await supabase
         .from("workout_sessions")
         .update({ notes, updated_at: new Date().toISOString() })
-        .eq("id", session.id);
+        .eq("id", sessionId);
 
       if (error) throw error;
-      setSession(prev => prev ? { ...prev, notes } : null);
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, notes } : s));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update notes";
       setError(message);
@@ -78,9 +78,8 @@ export function useWorkoutSessions(date: string) {
     }
   };
 
-  // Link a Whoop workout to this session
-  const linkWhoopWorkout = async (whoopWorkout: CachedWhoopWorkout) => {
-    if (!session) throw new Error("No active session");
+  // Link a Whoop workout to specific session
+  const linkWhoopWorkout = async (sessionId: string, whoopWorkout: CachedWhoopWorkout) => {
     setError(null);
     try {
       const updates = {
@@ -96,10 +95,10 @@ export function useWorkoutSessions(date: string) {
       const { error } = await supabase
         .from("workout_sessions")
         .update(updates)
-        .eq("id", session.id);
+        .eq("id", sessionId);
 
       if (error) throw error;
-      setSession(prev => prev ? { ...prev, ...updates } : null);
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, ...updates } : s));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to link workout";
       setError(message);
@@ -107,9 +106,8 @@ export function useWorkoutSessions(date: string) {
     }
   };
 
-  // Unlink Whoop workout from session
-  const unlinkWhoopWorkout = async () => {
-    if (!session) throw new Error("No active session");
+  // Unlink Whoop workout from specific session
+  const unlinkWhoopWorkout = async (sessionId: string) => {
     setError(null);
     try {
       const updates = {
@@ -125,10 +123,10 @@ export function useWorkoutSessions(date: string) {
       const { error } = await supabase
         .from("workout_sessions")
         .update(updates)
-        .eq("id", session.id);
+        .eq("id", sessionId);
 
       if (error) throw error;
-      setSession(prev => prev ? { ...prev, ...updates } : null);
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, ...updates } : s));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to unlink workout";
       setError(message);
@@ -136,18 +134,17 @@ export function useWorkoutSessions(date: string) {
     }
   };
 
-  // Delete the session
-  const deleteSession = async () => {
-    if (!session) return;
+  // Delete specific session (CASCADE deletes exercises)
+  const deleteSession = async (sessionId: string) => {
     setError(null);
     try {
       const { error } = await supabase
         .from("workout_sessions")
         .delete()
-        .eq("id", session.id);
+        .eq("id", sessionId);
 
       if (error) throw error;
-      setSession(null);
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete session";
       setError(message);
@@ -156,18 +153,18 @@ export function useWorkoutSessions(date: string) {
   };
 
   useEffect(() => {
-    fetchSession();
-  }, [fetchSession]);
+    fetchSessions();
+  }, [fetchSessions]);
 
   return {
-    session,
+    sessions,
     isLoading,
     error,
     startSession,
-    updateNotes,
+    updateSessionNotes,
     linkWhoopWorkout,
     unlinkWhoopWorkout,
     deleteSession,
-    refetch: fetchSession,
+    refetch: fetchSessions,
   };
 }
