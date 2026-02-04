@@ -11,6 +11,7 @@ import { AIFoodDialog } from "@/components/ai/ai-food-dialog";
 import { useAuth } from "@/contexts/auth-context";
 import type { Food, Meal } from "@/lib/supabase/types";
 import type { FoodLogWithFood } from "@/hooks/use-food-logs";
+import type { SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
 
 interface MealSectionProps {
   meal: Meal;
@@ -48,6 +49,17 @@ export function MealSection({
   const addFoodToMeal = async (food: Food, servings: number) => {
     try {
       await onAddLog(food.id, servings);
+    } catch {
+      // Error handled by hook
+    }
+  };
+
+  const addSavedMealToMeal = async (preset: SavedMealPresetWithItems) => {
+    try {
+      // Add all foods from the saved meal preset
+      for (const item of preset.items) {
+        await onAddLog(item.food_id, item.servings);
+      }
     } catch {
       // Error handled by hook
     }
@@ -228,6 +240,7 @@ export function MealSection({
         onOpenChange={setIsDialogOpen}
         mealTitle={meal.name}
         onSelectFood={addFoodToMeal}
+        onSelectSavedMeal={addSavedMealToMeal}
       />
 
       {/* AI Food Dialog */}

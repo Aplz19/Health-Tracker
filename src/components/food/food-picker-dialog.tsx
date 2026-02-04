@@ -1,18 +1,21 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, ArrowLeft, Database, Loader2, ScanBarcode } from "lucide-react";
+import { Search, ArrowLeft, Database, Loader2, ScanBarcode, Plus, Pencil, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
+import { useSavedMealPresets, type SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
 import { BarcodeScanner } from "./barcode-scanner";
+import { CreatePresetDialog } from "@/components/meals/create-preset-dialog";
 import type { Food } from "@/lib/supabase/types";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
 
@@ -210,6 +213,8 @@ interface FoodPickerDialogProps {
   onOpenChange: (open: boolean) => void;
   mealTitle: string;
   onSelectFood: (food: Food, servings: number) => void;
+  onSelectSavedMeal?: (preset: SavedMealPresetWithItems) => void;
+  mode?: "default" | "food-only"; // food-only hides saved meals tab (used when nested)
 }
 
 // Type for selected food (could be local or scanned)
@@ -225,6 +230,8 @@ export function FoodPickerDialog({
   onOpenChange,
   mealTitle,
   onSelectFood,
+  onSelectSavedMeal,
+  mode = "default",
 }: FoodPickerDialogProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFood, setSelectedFood] = useState<SelectedFood | null>(null);
@@ -234,6 +241,9 @@ export function FoodPickerDialog({
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"foods" | "saved">("foods");
+  const [createPresetOpen, setCreatePresetOpen] = useState(false);
+  const [editingPreset, setEditingPreset] = useState<SavedMealPresetWithItems | null>(null);
 
   // User's personal food library
   const {
@@ -241,6 +251,17 @@ export function FoodPickerDialog({
     isLoading: isLoadingLibrary,
     addToLibrary,
   } = useUserFoodLibrary(searchQuery);
+
+  // Saved meal presets (only load if not in food-only mode)
+  const {
+    presets,
+    isLoading: isLoadingPresets,
+    createPreset,
+    updatePreset,
+    deletePreset,
+    addItemToPreset,
+    removeItemFromPreset,
+  } = useSavedMealPresets();
 
   // Load recent food IDs on mount
   useEffect(() => {
@@ -389,8 +410,50 @@ export function FoodPickerDialog({
       setAmount(1);
       setUnit("serving");
       setSelectedUnitIndex(0);
+      setActiveTab("foods");
     }
     onOpenChange(open);
+  };
+
+  const handleSelectSavedMeal = (preset: SavedMealPresetWithItems) => {
+    if (onSelectSavedMeal) {
+      onSelectSavedMeal(preset);
+      onOpenChange(false);
+      setActiveTab("foods");
+    }
+  };
+
+  const handleSavePreset = async (
+    name: string,
+    items: Array<{ foodId: string; servings: number }>,
+    presetId?: string
+  ) => {
+    if (presetId) {
+      // Update existing preset - need to update name and sync items
+      await updatePreset(presetId, name);
+      // For simplicity, delete all items and re-add (could optimize later)
+      const existingPreset = presets.find((p) => p.id === presetId);
+      if (existingPreset) {
+        for (const item of existingPreset.items) {
+          await removeItemFromPreset(item.id);
+        }
+      }
+      for (const item of items) {
+        await addItemToPreset(presetId, item.foodId, item.servings);
+      }
+    } else {
+      // Create new preset
+      const newPreset = await createPreset(name);
+      for (const item of items) {
+        await addItemToPreset(newPreset.id, item.foodId, item.servings);
+      }
+    }
+    setCreatePresetOpen(false);
+    setEditingPreset(null);
+  };
+
+  const handleDeletePreset = async (presetId: string) => {
+    await deletePreset(presetId);
   };
 
   return (
@@ -477,6 +540,11 @@ export function FoodPickerDialog({
                   type="number"
                   value={amount === 0 ? "" : amount}
                   onChange={(e) => setAmount(e.target.value === "" ? 0 : Number(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && amount > 0 && !isSaving) {
+                      handleConfirm();
+                    }
+                  }}
                   min={0}
                   step={unit === "serving" ? 0.25 : (parsedServing?.unit === 'g' || parsedServing?.unit === 'ml' ? 1 : 0.1)}
                   className={unit === "custom" ? "pr-12" : ""}
@@ -532,8 +600,8 @@ export function FoodPickerDialog({
               )}
             </Button>
           </div>
-        ) : (
-          // Food selection step
+        ) : mode === "food-only" ? (
+          // Food-only mode (no tabs, used when nested in create preset dialog)
           <div className="flex flex-col min-h-0 overflow-hidden">
             <div className="flex gap-2 flex-shrink-0">
               <div className="relative flex-1">
@@ -575,7 +643,6 @@ export function FoodPickerDialog({
                 </div>
               ) : (
                 <div className="space-y-3 pr-2">
-                  {/* User's library foods */}
                   {sortedLibraryFoods.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
@@ -606,11 +673,189 @@ export function FoodPickerDialog({
                       ))}
                     </div>
                   )}
-
                 </div>
               )}
             </div>
           </div>
+        ) : (
+          // Default mode with tabs
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "foods" | "saved")} className="flex flex-col min-h-0 overflow-hidden">
+            <TabsList className="w-full flex-shrink-0">
+              <TabsTrigger value="foods" className="flex-1">Foods</TabsTrigger>
+              <TabsTrigger value="saved" className="flex-1">Saved Meals</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="foods" className="flex flex-col min-h-0 overflow-hidden mt-3">
+              <div className="flex gap-2 flex-shrink-0">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search your foods..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                    autoFocus={activeTab === "foods"}
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setScannerOpen(true)}
+                  className="h-10 w-10 shrink-0"
+                >
+                  <ScanBarcode className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto mt-3">
+                {isLoading && sortedLibraryFoods.length === 0 ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
+                    <p className="text-sm text-muted-foreground">Loading...</p>
+                  </div>
+                ) : sortedLibraryFoods.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      {searchQuery
+                        ? "No foods found in your library"
+                        : "Your food library is empty"}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Scan a barcode or add foods from the Food Library
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 pr-2">
+                    {sortedLibraryFoods.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+                          <Database className="h-3 w-3" />
+                          <span>Your Library</span>
+                        </div>
+                        {sortedLibraryFoods.map((food) => (
+                          <Card
+                            key={food.id}
+                            className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                            onClick={() => handleSelectFood(food)}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium truncate">{food.name}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {food.serving_size}
+                                </p>
+                              </div>
+                              <div className="text-right text-sm ml-2 shrink-0">
+                                <p className="font-medium">{food.calories} cal</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {food.protein}P | {food.total_carbohydrates}C | {food.total_fat}F
+                                </p>
+                              </div>
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="saved" className="flex flex-col min-h-0 overflow-hidden mt-3">
+              <div className="flex justify-between items-center mb-3 flex-shrink-0">
+                <p className="text-sm text-muted-foreground">
+                  {presets.length} saved meal{presets.length !== 1 ? "s" : ""}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditingPreset(null);
+                    setCreatePresetOpen(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Create
+                </Button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {isLoadingPresets ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
+                    <p className="text-sm text-muted-foreground">Loading...</p>
+                  </div>
+                ) : presets.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      No saved meals yet
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Create a saved meal to quickly add multiple foods at once
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 pr-2">
+                    {presets.map((preset) => {
+                      const totalCalories = preset.items.reduce(
+                        (sum, item) => sum + item.food.calories * item.servings,
+                        0
+                      );
+                      const totalProtein = preset.items.reduce(
+                        (sum, item) => sum + item.food.protein * item.servings,
+                        0
+                      );
+                      return (
+                        <Card
+                          key={preset.id}
+                          className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => handleSelectSavedMeal(preset)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium truncate">{preset.name}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {preset.items.length} food{preset.items.length !== 1 ? "s" : ""} |{" "}
+                                {Math.round(totalCalories)} cal | {Math.round(totalProtein)}g P
+                              </p>
+                              <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                {preset.items.map((i) => i.food.name).join(", ")}
+                              </p>
+                            </div>
+                            <div className="flex gap-1 ml-2 shrink-0">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingPreset(preset);
+                                  setCreatePresetOpen(true);
+                                }}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePreset(preset.id);
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
         )}
       </DialogContent>
 
@@ -619,6 +864,15 @@ export function FoodPickerDialog({
         onClose={() => setScannerOpen(false)}
         onFoodFound={handleScannedFood}
       />
+
+      {mode === "default" && (
+        <CreatePresetDialog
+          open={createPresetOpen}
+          onOpenChange={setCreatePresetOpen}
+          editingPreset={editingPreset}
+          onSave={handleSavePreset}
+        />
+      )}
     </Dialog>
   );
 }

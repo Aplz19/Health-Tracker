@@ -189,5 +189,28 @@ export interface CachedWhoopWorkout {
   synced_at: string;
 }
 
+// Saved Meal Presets - user's reusable meal combinations
+export interface SavedMealPreset {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SavedMealPresetInsert = Omit<SavedMealPreset, "id" | "created_at" | "updated_at">;
+
+// Items within a saved meal preset
+export interface SavedMealPresetItem {
+  id: string;
+  preset_id: string;
+  food_id: string;
+  servings: number;
+  sort_order: number;
+  created_at: string;
+}
+
+export type SavedMealPresetItemInsert = Omit<SavedMealPresetItem, "id" | "created_at">;
+
 // Re-export daily summary types for convenience
 export type { DailySummary, DailySummaryData } from "@/lib/daily-summary/types";
