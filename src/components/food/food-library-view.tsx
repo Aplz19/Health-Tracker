@@ -96,17 +96,17 @@ export function FoodLibraryView({
     <div className="flex flex-col h-full">
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "foods" | "meals")} className="flex flex-col h-full">
         {/* Tabs header */}
-        <div className="flex-shrink-0 p-4 pb-4 border-b bg-background">
+        <div className="flex-shrink-0 p-4 border-b border-border bg-background">
           <TabsList className="w-full">
             <TabsTrigger
               value="foods"
-              className="flex-1 data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+              className="flex-1 data-[state=active]:!bg-purple-600 data-[state=active]:!text-white"
             >
               Foods
             </TabsTrigger>
             <TabsTrigger
               value="meals"
-              className="flex-1 data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+              className="flex-1 data-[state=active]:!bg-purple-600 data-[state=active]:!text-white"
             >
               Meals
             </TabsTrigger>
