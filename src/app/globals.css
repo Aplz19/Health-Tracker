@@ -125,4 +125,20 @@
   body {
     @apply bg-background text-foreground;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  /* Native app feel when installed to the iOS home screen */
+  body {
+    -webkit-tap-highlight-color: transparent; /* no grey flash on tap */
+    -webkit-touch-callout: none;              /* no long-press menu */
+    overscroll-behavior-y: none;              /* no rubber-band bounce */
+  }
+  /* keep text selectable inside form fields */
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
