@@ -1,52 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
+import { lookupBarcode, type BarcodeResult } from "@/lib/openfoodfacts/client";
 
-const OFF_US_API = "https://us.openfoodfacts.org/api/v2";
-const OFF_WORLD_API = "https://world.openfoodfacts.org/api/v2";
-
-// Cache for barcode lookups
-const cache = new Map<string, { data: unknown; timestamp: number }>();
+// Cache transformed lookups. Note: on serverless this only persists within a
+// warm instance — the durable cache is the `foods` table (see food DB plan).
+const cache = new Map<string, { result: BarcodeResult; timestamp: number }>();
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
 
 export async function GET(request: NextRequest) {
   const barcode = request.nextUrl.searchParams.get("barcode");
 
   if (!barcode) {
-    return NextResponse.json({ error: "Barcode is required" }, { status: 400 });
+    return NextResponse.json(
+      { found: false, error: "Barcode is required" },
+      { status: 400 }
+    );
   }
 
-  // Clean barcode
   const cleanBarcode = barcode.replace(/[\s-]/g, "");
 
-  // Check cache
   const cached = cache.get(cleanBarcode);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return NextResponse.json(cached.data);
+    return NextResponse.json(cached.result);
   }
 
   try {
-    // Try US database first
-    let response = await fetch(`${OFF_US_API}/product/${cleanBarcode}.json`, {
-      headers: {
-        "User-Agent": "HealthTracker/1.0",
-      },
-    });
+    const result = await lookupBarcode(cleanBarcode);
 
-    let data = await response.json();
+    cache.set(cleanBarcode, { result, timestamp: Date.now() });
 
-    // If not found in US, try world database
-    if (data.status === 0) {
-      response = await fetch(`${OFF_WORLD_API}/product/${cleanBarcode}.json`, {
-        headers: {
-          "User-Agent": "HealthTracker/1.0",
-        },
-      });
-      data = await response.json();
-    }
-
-    // Cache the result
-    cache.set(cleanBarcode, { data, timestamp: Date.now() });
-
-    // Clean old cache entries
+    // Evict stale entries once the cache grows large
     if (cache.size > 500) {
       const now = Date.now();
       for (const [key, value] of cache.entries()) {
@@ -56,11 +38,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Barcode lookup error:", error);
     return NextResponse.json(
-      { error: "Failed to lookup barcode" },
+      { found: false, error: "Failed to lookup barcode" },
       { status: 500 }
     );
   }

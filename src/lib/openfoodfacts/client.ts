@@ -4,10 +4,26 @@ import type { OFFProductResponse, OFFProduct, TransformedOFFFood } from "./types
 const OFF_API_BASE = "https://us.openfoodfacts.org/api/v2";
 const OFF_WORLD_API = "https://world.openfoodfacts.org/api/v2";
 
+const OFF_HEADERS = {
+  "User-Agent": "HealthTracker/1.0 (https://github.com/Aplz19/Health-Tracker)",
+};
+const FETCH_TIMEOUT_MS = 5000;
+
 export interface BarcodeResult {
   found: boolean;
   food?: TransformedOFFFood;
   error?: string;
+}
+
+// fetch() with an abort-based timeout so a slow OFF response can't hang us
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { headers: OFF_HEADERS, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Look up a product by barcode
@@ -16,21 +32,12 @@ export async function lookupBarcode(barcode: string): Promise<BarcodeResult> {
   const cleanBarcode = barcode.replace(/[\s-]/g, "");
 
   // Try US database first
-  let response = await fetch(`${OFF_API_BASE}/product/${cleanBarcode}.json`, {
-    headers: {
-      "User-Agent": "HealthTracker/1.0 (https://github.com/health-tracker)",
-    },
-  });
-
+  let response = await fetchWithTimeout(`${OFF_API_BASE}/product/${cleanBarcode}.json`);
   let data: OFFProductResponse = await response.json();
 
   // If not found in US, try world database
   if (data.status === 0) {
-    response = await fetch(`${OFF_WORLD_API}/product/${cleanBarcode}.json`, {
-      headers: {
-        "User-Agent": "HealthTracker/1.0 (https://github.com/health-tracker)",
-      },
-    });
+    response = await fetchWithTimeout(`${OFF_WORLD_API}/product/${cleanBarcode}.json`);
     data = await response.json();
   }
 

@@ -27,10 +27,19 @@ type ScanState =
   | { type: "permission_denied" }
   | { type: "error"; message: string };
 
+// Require the same barcode to be decoded this many times before trusting it.
+// Quagga misreads on single frames; requiring agreement filters out garbage.
+const CONFIRMATION_THRESHOLD = 2;
+
+type DetectHandler = Parameters<typeof Quagga.onDetected>[0];
+
 export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerProps) {
   const [scanState, setScanState] = useState<ScanState>({ type: "initializing" });
   const scannerRef = useRef<HTMLDivElement>(null);
   const hasStartedRef = useRef(false);
+  const handledRef = useRef(false);
+  const detectionCountsRef = useRef<Map<string, number>>(new Map());
+  const detectHandlerRef = useRef<DetectHandler | null>(null);
 
   const lookupBarcode = useCallback(async (barcode: string) => {
     setScanState({ type: "loading", barcode });
@@ -39,9 +48,8 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
       const response = await fetch(`/api/food/barcode?barcode=${encodeURIComponent(barcode)}`);
       const data = await response.json();
 
-      if (data.status === 1 && data.product) {
-        const food = transformOFFProduct(data.product, barcode);
-        setScanState({ type: "found", food });
+      if (data.found && data.food) {
+        setScanState({ type: "found", food: data.food });
       } else {
         setScanState({ type: "not_found", barcode });
       }
@@ -54,14 +62,27 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
   }, []);
 
   const stopScanner = useCallback(() => {
-    Quagga.stop();
-    hasStartedRef.current = false;
+    if (detectHandlerRef.current) {
+      Quagga.offDetected(detectHandlerRef.current);
+      detectHandlerRef.current = null;
+    }
+    if (hasStartedRef.current) {
+      try {
+        Quagga.stop();
+      } catch {
+        // Quagga wasn't running; safe to ignore
+      }
+      hasStartedRef.current = false;
+    }
+    detectionCountsRef.current.clear();
   }, []);
 
   const startScanner = useCallback(async () => {
     if (!scannerRef.current || hasStartedRef.current) return;
 
     setScanState({ type: "initializing" });
+    handledRef.current = false;
+    detectionCountsRef.current.clear();
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -105,10 +126,18 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
 
       Quagga.start();
 
-      // Set up detection handler
-      Quagga.onDetected((result) => {
-        if (result?.codeResult?.code) {
-          const code = result.codeResult.code;
+      // Only accept a code once it has been decoded CONFIRMATION_THRESHOLD
+      // times — filters out single-frame misreads.
+      const handler: DetectHandler = (result) => {
+        const code = result?.codeResult?.code;
+        if (!code || handledRef.current) return;
+
+        const counts = detectionCountsRef.current;
+        const seen = (counts.get(code) ?? 0) + 1;
+        counts.set(code, seen);
+
+        if (seen >= CONFIRMATION_THRESHOLD) {
+          handledRef.current = true;
 
           // Vibrate on success
           if (navigator.vibrate) {
@@ -118,7 +147,9 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
           stopScanner();
           lookupBarcode(code);
         }
-      });
+      };
+      detectHandlerRef.current = handler;
+      Quagga.onDetected(handler);
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -344,102 +375,4 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
       </DialogContent>
     </Dialog>
   );
-}
-
-// Transform Open Food Facts raw product to our format
-function transformOFFProduct(product: {
-  product_name?: string;
-  product_name_en?: string;
-  brands?: string;
-  serving_size?: string;
-  serving_quantity?: number;
-  nutriments?: Record<string, number>;
-}, barcode: string): TransformedOFFFood {
-  const n = product.nutriments || {};
-
-  let name = product.product_name_en || product.product_name || "Unknown Product";
-
-  if (product.brands && !name.toLowerCase().includes(product.brands.toLowerCase())) {
-    name = `${product.brands} ${name}`;
-  }
-
-  let servingSize = "100g";
-  let servingSizeGrams: number | null = 100;
-
-  if (product.serving_size) {
-    servingSize = product.serving_size;
-    servingSizeGrams = product.serving_quantity || parseServingGrams(product.serving_size);
-  }
-
-  const hasServingData = n["energy-kcal_serving"] !== undefined;
-
-  let calories: number;
-  let protein: number;
-  let totalFat: number;
-  let carbs: number;
-  let saturatedFat: number | null;
-  let fiber: number | null;
-  let sugar: number | null;
-  let sodium: number | null;
-
-  if (hasServingData && servingSizeGrams !== 100) {
-    calories = n["energy-kcal_serving"] ?? 0;
-    protein = n["proteins_serving"] ?? 0;
-    totalFat = n["fat_serving"] ?? 0;
-    carbs = n["carbohydrates_serving"] ?? 0;
-    saturatedFat = n["saturated-fat_serving"] ?? null;
-    fiber = n["fiber_serving"] ?? null;
-    sugar = n["sugars_serving"] ?? null;
-    sodium = n["sodium_serving"] ? n["sodium_serving"] * 1000 : null;
-  } else {
-    const scale = servingSizeGrams ? servingSizeGrams / 100 : 1;
-
-    calories = Math.round((n["energy-kcal_100g"] ?? 0) * scale);
-    protein = Math.round(((n["proteins_100g"] ?? 0) * scale) * 10) / 10;
-    totalFat = Math.round(((n["fat_100g"] ?? 0) * scale) * 10) / 10;
-    carbs = Math.round(((n["carbohydrates_100g"] ?? 0) * scale) * 10) / 10;
-    saturatedFat = n["saturated-fat_100g"] ? Math.round((n["saturated-fat_100g"] * scale) * 10) / 10 : null;
-    fiber = n["fiber_100g"] ? Math.round((n["fiber_100g"] * scale) * 10) / 10 : null;
-    sugar = n["sugars_100g"] ? Math.round((n["sugars_100g"] * scale) * 10) / 10 : null;
-    sodium = n["sodium_100g"] ? Math.round(n["sodium_100g"] * scale * 1000) : null;
-  }
-
-  return {
-    name,
-    serving_size: servingSize,
-    serving_size_grams: servingSizeGrams,
-    calories,
-    protein,
-    total_fat: totalFat,
-    saturated_fat: saturatedFat,
-    trans_fat: n["trans-fat_100g"] ?? null,
-    polyunsaturated_fat: n["polyunsaturated-fat_100g"] ?? null,
-    monounsaturated_fat: n["monounsaturated-fat_100g"] ?? null,
-    sodium,
-    total_carbohydrates: carbs,
-    fiber,
-    sugar,
-    added_sugar: null,
-    vitamin_a: n["vitamin-a_100g"] ?? null,
-    vitamin_c: n["vitamin-c_100g"] ?? null,
-    vitamin_d: n["vitamin-d_100g"] ?? null,
-    calcium: n["calcium_100g"] ?? null,
-    iron: n["iron_100g"] ?? null,
-    barcode,
-    source: "openfoodfacts",
-  };
-}
-
-function parseServingGrams(servingSize: string): number | null {
-  const match = servingSize.match(/(\d+(?:\.\d+)?)\s*g(?:rams?)?/i);
-  if (match) {
-    return parseFloat(match[1]);
-  }
-
-  const mlMatch = servingSize.match(/(\d+(?:\.\d+)?)\s*ml/i);
-  if (mlMatch) {
-    return parseFloat(mlMatch[1]);
-  }
-
-  return null;
 }
