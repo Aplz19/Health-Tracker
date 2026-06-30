@@ -20,7 +20,8 @@ export function useUserFoodLibrary(searchQuery: string = "") {
     setError(null);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       // Query user's food library joined with foods table
@@ -70,7 +71,8 @@ export function useUserFoodLibrary(searchQuery: string = "") {
   // If it's a new food (FoodInsert), create it in global cache first
   // If a food with the same barcode exists, reuse it instead of creating a duplicate
   const addToLibrary = async (food: Food | FoodInsert): Promise<Food> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
     if (!user) throw new Error("Not authenticated");
 
     let savedFood: Food;
@@ -142,7 +144,8 @@ export function useUserFoodLibrary(searchQuery: string = "") {
 
   // Add existing food to library (just creates the link)
   const addExistingToLibrary = async (foodId: string): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
     if (!user) throw new Error("Not authenticated");
 
     // Check if already in library
@@ -169,7 +172,8 @@ export function useUserFoodLibrary(searchQuery: string = "") {
 
   // Remove food from user's library (doesn't delete from global cache)
   const removeFromLibrary = async (libraryId: string): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
     if (!user) throw new Error("Not authenticated");
 
     const { error } = await supabase
@@ -202,7 +206,8 @@ export function useUserFoodLibrary(searchQuery: string = "") {
 
   // Check if a food is in user's library
   const isInLibrary = async (foodId: string): Promise<boolean> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
     if (!user) return false;
 
     const { data } = await supabase

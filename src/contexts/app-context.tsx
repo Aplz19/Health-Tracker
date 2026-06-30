@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from "react";
 
 interface AppContextType {
   isFoodLibraryOpen: boolean;
@@ -21,30 +21,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isExerciseLibraryOpen, setIsExerciseLibraryOpen] = useState(false);
   const [isSupplementLibraryOpen, setIsSupplementLibraryOpen] = useState(false);
 
-  const openFoodLibrary = () => setIsFoodLibraryOpen(true);
-  const closeFoodLibrary = () => setIsFoodLibraryOpen(false);
-  const openExerciseLibrary = () => setIsExerciseLibraryOpen(true);
-  const closeExerciseLibrary = () => setIsExerciseLibraryOpen(false);
-  const openSupplementLibrary = () => setIsSupplementLibraryOpen(true);
-  const closeSupplementLibrary = () => setIsSupplementLibraryOpen(false);
+  const openFoodLibrary = useCallback(() => setIsFoodLibraryOpen(true), []);
+  const closeFoodLibrary = useCallback(() => setIsFoodLibraryOpen(false), []);
+  const openExerciseLibrary = useCallback(() => setIsExerciseLibraryOpen(true), []);
+  const closeExerciseLibrary = useCallback(() => setIsExerciseLibraryOpen(false), []);
+  const openSupplementLibrary = useCallback(() => setIsSupplementLibraryOpen(true), []);
+  const closeSupplementLibrary = useCallback(() => setIsSupplementLibraryOpen(false), []);
 
-  return (
-    <AppContext.Provider
-      value={{
-        isFoodLibraryOpen,
-        openFoodLibrary,
-        closeFoodLibrary,
-        isExerciseLibraryOpen,
-        openExerciseLibrary,
-        closeExerciseLibrary,
-        isSupplementLibraryOpen,
-        openSupplementLibrary,
-        closeSupplementLibrary,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
+  const value = useMemo(
+    () => ({
+      isFoodLibraryOpen,
+      openFoodLibrary,
+      closeFoodLibrary,
+      isExerciseLibraryOpen,
+      openExerciseLibrary,
+      closeExerciseLibrary,
+      isSupplementLibraryOpen,
+      openSupplementLibrary,
+      closeSupplementLibrary,
+    }),
+    [
+      isFoodLibraryOpen,
+      openFoodLibrary,
+      closeFoodLibrary,
+      isExerciseLibraryOpen,
+      openExerciseLibrary,
+      closeExerciseLibrary,
+      isSupplementLibraryOpen,
+      openSupplementLibrary,
+      closeSupplementLibrary,
+    ]
   );
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
 export function useApp() {

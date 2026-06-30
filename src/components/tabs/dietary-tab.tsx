@@ -178,24 +178,28 @@ export function DietaryTab() {
     deleteLog: deleteSupplementLog,
   } = useSupplementLogs(dateString);
 
-  // Create hooks for all possible supplements (needed for consistent hook calls)
+  // Create hooks for all possible supplements (needed for consistent hook calls).
+  // Each hook is gated by whether the user actually tracks that supplement, so
+  // disabled supplements make zero network calls (was ~15 queries every load).
+  const enabledKeys = new Set(enabledSupplements.map((s) => s.definition.key));
+
   // Original supplements
-  const creatine = useSupplement("creatine_logs", dateString);
-  const d3 = useSupplement("d3_logs", dateString);
-  const k2 = useSupplement("k2_logs", dateString);
-  const vitaminC = useSupplement("vitamin_c_logs", dateString);
-  const zinc = useSupplement("zinc_logs", dateString);
-  const magnesium = useSupplement("magnesium_logs", dateString);
-  const melatonin = useSupplement("melatonin_logs", dateString);
-  const caffeine = useSupplement("caffeine_logs", dateString);
+  const creatine = useSupplement("creatine_logs", dateString, enabledKeys.has("creatine"));
+  const d3 = useSupplement("d3_logs", dateString, enabledKeys.has("d3"));
+  const k2 = useSupplement("k2_logs", dateString, enabledKeys.has("k2"));
+  const vitaminC = useSupplement("vitamin_c_logs", dateString, enabledKeys.has("vitaminC"));
+  const zinc = useSupplement("zinc_logs", dateString, enabledKeys.has("zinc"));
+  const magnesium = useSupplement("magnesium_logs", dateString, enabledKeys.has("magnesium"));
+  const melatonin = useSupplement("melatonin_logs", dateString, enabledKeys.has("melatonin"));
+  const caffeine = useSupplement("caffeine_logs", dateString, enabledKeys.has("caffeine"));
   // New supplements
-  const fishOil = useSupplement("fish_oil_logs", dateString);
-  const vitaminA = useSupplement("vitamin_a_logs", dateString);
-  const vitaminE = useSupplement("vitamin_e_logs", dateString);
-  const vitaminB12 = useSupplement("vitamin_b12_logs", dateString);
-  const vitaminBComplex = useSupplement("vitamin_b_complex_logs", dateString);
-  const folate = useSupplement("folate_logs", dateString);
-  const biotin = useSupplement("biotin_logs", dateString);
+  const fishOil = useSupplement("fish_oil_logs", dateString, enabledKeys.has("fishOil"));
+  const vitaminA = useSupplement("vitamin_a_logs", dateString, enabledKeys.has("vitaminA"));
+  const vitaminE = useSupplement("vitamin_e_logs", dateString, enabledKeys.has("vitaminE"));
+  const vitaminB12 = useSupplement("vitamin_b12_logs", dateString, enabledKeys.has("vitaminB12"));
+  const vitaminBComplex = useSupplement("vitamin_b_complex_logs", dateString, enabledKeys.has("vitaminBComplex"));
+  const folate = useSupplement("folate_logs", dateString, enabledKeys.has("folate"));
+  const biotin = useSupplement("biotin_logs", dateString, enabledKeys.has("biotin"));
 
   const supplementHooks: Record<string, ReturnType<typeof useSupplement>> = {
     creatine,

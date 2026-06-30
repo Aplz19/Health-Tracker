@@ -14,7 +14,7 @@ export function AppContent() {
   // Still loading auth state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-dvh bg-background flex items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>
       </div>
     );
@@ -23,7 +23,7 @@ export function AppContent() {
   // Not logged in - will be redirected by middleware
   if (!user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-dvh bg-background flex items-center justify-center">
         <div className="text-muted-foreground">Redirecting to login...</div>
       </div>
     );
@@ -42,7 +42,7 @@ export function AppContent() {
   // Still checking onboarding status
   if (onboardingCompleted === null) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-dvh bg-background flex items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>
       </div>
     );
@@ -50,7 +50,7 @@ export function AppContent() {
 
   // Normal app view
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-dvh bg-background">
       <Header />
       <main className="container max-w-screen-md mx-auto">
         <TabNavigation />

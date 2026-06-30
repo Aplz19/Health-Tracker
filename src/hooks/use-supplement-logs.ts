@@ -23,7 +23,8 @@ export function useSupplementLogs(date: string) {
     setIsLoading(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase
@@ -53,7 +54,8 @@ export function useSupplementLogs(date: string) {
     notes?: string
   ): Promise<void> => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       const newLog = {
@@ -96,7 +98,8 @@ export function useSupplementLogs(date: string) {
     updates: { amount?: number; notes?: string }
   ): Promise<void> => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       // Optimistic update
@@ -120,7 +123,8 @@ export function useSupplementLogs(date: string) {
 
   const deleteLog = async (id: string): Promise<void> => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       // Optimistic update

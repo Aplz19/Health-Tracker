@@ -40,7 +40,7 @@ export function ExerciseLibraryOverlay() {
       </div>
 
       {/* Content - key forces remount when opened to reset state */}
-      <div className="h-[calc(100vh-3.5rem)]">
+      <div className="h-[calc(100dvh-3.5rem)]">
         {isExerciseLibraryOpen && <ExercisePanel key={panelKey} />}
       </div>
     </div>

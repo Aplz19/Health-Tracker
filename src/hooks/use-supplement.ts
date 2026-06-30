@@ -12,17 +12,27 @@ interface SupplementLog {
   updated_at: string;
 }
 
-export function useSupplement(tableName: string, date: string) {
+export function useSupplement(tableName: string, date: string, enabled: boolean = true) {
   const [amount, setAmount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasRecord, setHasRecord] = useState(false);
 
   const fetchSupplement = useCallback(async () => {
+    // Skip the query entirely for supplements the user isn't tracking. The
+    // dietary tab instantiates a hook for every known supplement (rules of
+    // hooks), so without this gate it would fire ~15 queries on every load.
+    if (!enabled) {
+      setIsLoading(false);
+      setAmount(0);
+      setHasRecord(false);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase
@@ -47,12 +57,13 @@ export function useSupplement(tableName: string, date: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [tableName, date]);
+  }, [tableName, date, enabled]);
 
   const updateAmount = async (newAmount: number) => {
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       const { error } = await supabase
@@ -93,7 +104,8 @@ export function useSupplement(tableName: string, date: string) {
 
 // Helper to fetch yesterday's value for a specific table
 export async function fetchYesterdayAmount(tableName: string, yesterdayDate: string): Promise<number> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user;
   if (!user) return 0;
 
   const { data } = await supabase

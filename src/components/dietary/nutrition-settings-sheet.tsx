@@ -70,7 +70,7 @@ export function NutritionSettingsSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-auto max-h-[90vh] rounded-t-xl">
+      <SheetContent side="bottom" className="h-auto max-h-[90dvh] rounded-t-xl">
         <SheetHeader className="pb-6">
           <SheetTitle>Nutrition Goals</SheetTitle>
         </SheetHeader>

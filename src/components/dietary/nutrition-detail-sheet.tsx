@@ -89,7 +89,7 @@ export function NutritionDetailSheet({
 }: NutritionDetailSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-[85vh] rounded-t-xl">
+      <SheetContent side="bottom" className="h-[85dvh] rounded-t-xl">
         <SheetHeader className="pb-4">
           <SheetTitle>Daily Nutrition</SheetTitle>
         </SheetHeader>

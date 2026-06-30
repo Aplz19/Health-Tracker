@@ -19,9 +19,8 @@ export function useSavedMealPresets() {
     setError(null);
 
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       // Fetch presets with their items and food data
@@ -64,9 +63,8 @@ export function useSavedMealPresets() {
 
   // Create a new preset
   const createPreset = async (name: string): Promise<SavedMealPreset> => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) throw new Error("Not authenticated");
 
     const { data, error } = await supabase

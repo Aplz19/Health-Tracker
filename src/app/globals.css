@@ -142,3 +142,16 @@
     user-select: text;
   }
 }
+
+/* Prevent iOS Safari from auto-zooming when a field is focused. Mobile Safari
+   zooms whenever an input's font-size is < 16px, which yields a jarring jump and
+   leaves the layout zoomed. This rule (intentionally OUTSIDE @layer so it beats
+   Tailwind's `text-sm`/`text-xs` utilities) forces every editable field to >=16px
+   on phones; desktop keeps the smaller sizes via the min-width breakpoint. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

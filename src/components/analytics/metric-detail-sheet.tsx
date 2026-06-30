@@ -65,7 +65,7 @@ export function MetricDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-[85vh] rounded-t-xl">
+      <SheetContent side="bottom" className="h-[85dvh] rounded-t-xl">
         <SheetHeader className="pb-4">
           <div className="flex items-center justify-between">
             <SheetTitle>{title}</SheetTitle>

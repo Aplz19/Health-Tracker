@@ -42,7 +42,8 @@ export function useExercises(searchQuery: string = "", category?: ExerciseCatego
     setError(null);
     try {
       // Get current user ID to associate exercise with them
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase

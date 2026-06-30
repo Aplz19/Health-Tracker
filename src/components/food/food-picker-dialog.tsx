@@ -14,10 +14,16 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
 import { useSavedMealPresets, type SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
-import { BarcodeScanner } from "./barcode-scanner";
+import dynamic from "next/dynamic";
 import { CreatePresetDialog } from "@/components/meals/create-preset-dialog";
 import type { Food } from "@/lib/supabase/types";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
+
+// Barcode scanner pulls in quagga2 (large); load it only when first opened.
+const BarcodeScanner = dynamic(
+  () => import("./barcode-scanner").then((m) => m.BarcodeScanner),
+  { ssr: false }
+);
 
 const RECENT_FOODS_KEY = "health-tracker-recent-foods";
 const MAX_RECENT_FOODS = 50;

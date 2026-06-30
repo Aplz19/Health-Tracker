@@ -17,7 +17,8 @@ export function useFoodLogs(date: string) {
     setIsLoading(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase
@@ -42,7 +43,8 @@ export function useFoodLogs(date: string) {
   const addLog = async (foodId: string, mealId: string, servings: number) => {
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase

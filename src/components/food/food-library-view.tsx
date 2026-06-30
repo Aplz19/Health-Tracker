@@ -7,11 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FoodList } from "./food-list";
-import { BarcodeScanner } from "./barcode-scanner";
+import dynamic from "next/dynamic";
 import { CreatePresetDialog } from "@/components/meals/create-preset-dialog";
 import { useSavedMealPresets, type SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
 import type { LibraryFood } from "@/hooks/use-user-food-library";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
+
+// Barcode scanner pulls in quagga2 (large); load it only when first opened.
+const BarcodeScanner = dynamic(
+  () => import("./barcode-scanner").then((m) => m.BarcodeScanner),
+  { ssr: false }
+);
 
 interface FoodLibraryViewProps {
   foods: LibraryFood[];
