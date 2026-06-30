@@ -238,7 +238,7 @@ export function FoodLibraryView({
                       <Card key={preset.id} className="p-3">
                         <div className="flex justify-between items-start">
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium truncate">{preset.name}</p>
+                            <p className="font-medium leading-snug break-words line-clamp-2">{preset.name}</p>
                             <p className="text-xs text-muted-foreground mt-1">
                               {preset.items.length} food{preset.items.length !== 1 ? "s" : ""} |{" "}
                               {Math.round(totalCalories)} cal
@@ -246,7 +246,7 @@ export function FoodLibraryView({
                             <p className="text-xs text-muted-foreground">
                               {Math.round(totalProtein)}g P | {Math.round(totalCarbs)}g C | {Math.round(totalFat)}g F
                             </p>
-                            <p className="text-xs text-muted-foreground truncate mt-1">
+                            <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
                               {preset.items.map((i) => i.food.name).join(", ")}
                             </p>
                           </div>
