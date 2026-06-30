@@ -458,8 +458,8 @@ export function FoodPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-xl w-[95vw] max-h-[80vh] !grid-rows-[auto_1fr] overflow-hidden flex flex-col top-[10%] translate-y-0 sm:top-[50%] sm:-translate-y-1/2">
-        <DialogHeader className="flex-shrink-0">
+      <DialogContent fullscreenOnMobile className="text-left">
+        <DialogHeader className="flex-shrink-0 border-b px-4 py-3 pr-12 text-left sm:px-6">
           <DialogTitle>
             {selectedFood ? (
               <div className="flex items-center gap-2">
@@ -481,7 +481,7 @@ export function FoodPickerDialog({
 
         {selectedFood ? (
           // Amount selection step
-          <div className="space-y-4 overflow-y-auto">
+          <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
             <div className="p-3 rounded-lg bg-muted/50">
               <p className="font-medium">{selectedFood.name}</p>
               <p className="text-sm text-muted-foreground">
@@ -602,7 +602,7 @@ export function FoodPickerDialog({
           </div>
         ) : mode === "food-only" ? (
           // Food-only mode (no tabs, used when nested in create preset dialog)
-          <div className="flex flex-col min-h-0 overflow-hidden">
+          <div className="flex flex-1 min-h-0 flex-col overflow-hidden px-4 py-4 sm:px-6">
             <div className="flex gap-2 flex-shrink-0">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -657,7 +657,7 @@ export function FoodPickerDialog({
                         >
                           <div className="flex justify-between items-start">
                             <div className="min-w-0 flex-1">
-                              <p className="font-medium truncate">{food.name}</p>
+                              <p className="font-medium leading-snug break-words line-clamp-2">{food.name}</p>
                               <p className="text-sm text-muted-foreground">
                                 {food.serving_size}
                               </p>
@@ -679,7 +679,7 @@ export function FoodPickerDialog({
           </div>
         ) : (
           // Default mode with tabs
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "foods" | "saved")} className="flex flex-col min-h-0 overflow-hidden">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "foods" | "saved")} className="flex flex-1 min-h-0 flex-col overflow-hidden px-4 py-4 sm:px-6">
             <TabsList className="w-full flex-shrink-0">
               <TabsTrigger value="foods" className="flex-1">Foods</TabsTrigger>
               <TabsTrigger value="saved" className="flex-1">Saved Meals</TabsTrigger>
@@ -740,7 +740,7 @@ export function FoodPickerDialog({
                           >
                             <div className="flex justify-between items-start">
                               <div className="min-w-0 flex-1">
-                                <p className="font-medium truncate">{food.name}</p>
+                                <p className="font-medium leading-snug break-words line-clamp-2">{food.name}</p>
                                 <p className="text-sm text-muted-foreground">
                                   {food.serving_size}
                                 </p>
@@ -813,12 +813,12 @@ export function FoodPickerDialog({
                         >
                           <div className="flex justify-between items-start">
                             <div className="min-w-0 flex-1">
-                              <p className="font-medium truncate">{preset.name}</p>
+                              <p className="font-medium leading-snug break-words line-clamp-2">{preset.name}</p>
                               <p className="text-xs text-muted-foreground mt-1">
                                 {preset.items.length} food{preset.items.length !== 1 ? "s" : ""} |{" "}
                                 {Math.round(totalCalories)} cal | {Math.round(totalProtein)}g P
                               </p>
-                              <p className="text-xs text-muted-foreground truncate mt-0.5">
+                              <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
                                 {preset.items.map((i) => i.food.name).join(", ")}
                               </p>
                             </div>
