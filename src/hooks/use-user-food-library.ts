@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { Food, FoodInsert } from "@/lib/supabase/types";
 
 // Food with library metadata
@@ -10,13 +11,29 @@ export interface LibraryFood extends Food {
   added_at: string;
 }
 
+const LIBRARY_CACHE_KEY = "user_food_library";
+
 export function useUserFoodLibrary(searchQuery: string = "") {
-  const [foods, setFoods] = useState<LibraryFood[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // The full (unfiltered) library is fetched ONCE and searched in memory.
+  // Previously searchQuery was a dependency of the fetch, so every keystroke
+  // in the search box re-downloaded the entire library from Supabase.
+  const [allFoods, setAllFoodsState] = useState<LibraryFood[]>(
+    () => getCached<LibraryFood[]>(LIBRARY_CACHE_KEY) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(LIBRARY_CACHE_KEY));
   const [error, setError] = useState<string | null>(null);
 
+  // Write-through setter keeps the session cache in sync.
+  const setAllFoods = useCallback((updater: React.SetStateAction<LibraryFood[]>) => {
+    setAllFoodsState((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      setCached(LIBRARY_CACHE_KEY, next);
+      return next;
+    });
+  }, []);
+
   const fetchLibrary = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasCached(LIBRARY_CACHE_KEY)) setIsLoading(true);
     setError(null);
 
     try {
@@ -25,7 +42,7 @@ export function useUserFoodLibrary(searchQuery: string = "") {
       if (!user) throw new Error("Not authenticated");
 
       // Query user's food library joined with foods table
-      let query = supabase
+      const { data, error } = await supabase
         .from("user_food_library")
         .select(`
           id,
@@ -34,8 +51,6 @@ export function useUserFoodLibrary(searchQuery: string = "") {
         `)
         .eq("user_id", user.id)
         .order("added_at", { ascending: false });
-
-      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -48,24 +63,24 @@ export function useUserFoodLibrary(searchQuery: string = "") {
           added_at: item.added_at,
         }));
 
-      // Apply search filter client-side
-      const filtered = searchQuery
-        ? libraryFoods.filter((f) =>
-            f.name.toLowerCase().includes(searchQuery.toLowerCase())
-          )
-        : libraryFoods;
-
-      setFoods(filtered);
+      setAllFoods(libraryFoods);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch library");
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery]);
+  }, [setAllFoods]);
 
   useEffect(() => {
     fetchLibrary();
   }, [fetchLibrary]);
+
+  // In-memory search — instant, no network per keystroke.
+  const foods = useMemo(() => {
+    if (!searchQuery) return allFoods;
+    const q = searchQuery.toLowerCase();
+    return allFoods.filter((f) => f.name.toLowerCase().includes(q));
+  }, [allFoods, searchQuery]);
 
   // Add a food to the user's personal library
   // If it's a new food (FoodInsert), create it in global cache first
@@ -185,7 +200,7 @@ export function useUserFoodLibrary(searchQuery: string = "") {
     if (error) throw error;
 
     // Optimistic update
-    setFoods((prev) => prev.filter((f) => f.library_id !== libraryId));
+    setAllFoods((prev) => prev.filter((f) => f.library_id !== libraryId));
   };
 
   // Update a food in the global cache (user must own it in their library)

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { Food, FoodLog } from "@/lib/supabase/types";
 
 export interface FoodLogWithFood extends FoodLog {
@@ -9,12 +10,27 @@ export interface FoodLogWithFood extends FoodLog {
 }
 
 export function useFoodLogs(date: string) {
-  const [logs, setLogs] = useState<FoodLogWithFood[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `food_logs:${date}`;
+  const [logs, setLogsState] = useState<FoodLogWithFood[]>(
+    () => getCached<FoodLogWithFood[]>(cacheKey) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
 
+  // Write-through setter keeps the cache in sync with every state change.
+  const setLogs = useCallback(
+    (updater: React.SetStateAction<FoodLogWithFood[]>) => {
+      setLogsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        setCached(cacheKey, next);
+        return next;
+      });
+    },
+    [cacheKey]
+  );
+
   const fetchLogs = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasCached(cacheKey)) setIsLoading(true);
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -38,7 +54,7 @@ export function useFoodLogs(date: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [date]);
+  }, [date, cacheKey, setLogs]);
 
   const addLog = async (foodId: string, mealId: string, servings: number) => {
     setError(null);
@@ -114,8 +130,12 @@ export function useFoodLogs(date: string) {
   };
 
   useEffect(() => {
+    // On date change: swap in cached data instantly, then revalidate.
+    const cached = getCached<FoodLogWithFood[]>(cacheKey);
+    setLogsState(cached ?? []);
+    setIsLoading(cached === undefined);
     fetchLogs();
-  }, [fetchLogs]);
+  }, [cacheKey, fetchLogs]);
 
   return {
     logs,

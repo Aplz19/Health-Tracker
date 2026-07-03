@@ -2,18 +2,34 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { HabitLog } from "@/types/habits";
 
 export function useHabitLogs(date: string, enabledHabitKeys: string[] = []) {
-  const [logs, setLogs] = useState<HabitLog[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `habit_logs:${date}`;
+  const [logs, setLogsState] = useState<HabitLog[]>(
+    () => getCached<HabitLog[]>(cacheKey) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
   const initializedRef = useRef<string | null>(null);
   // Stabilize the keys for dependency comparison
   const keysString = enabledHabitKeys.join(",");
 
+  // Write-through setter keeps the cache in sync with every state change.
+  const setLogs = useCallback(
+    (updater: React.SetStateAction<HabitLog[]>) => {
+      setLogsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        setCached(cacheKey, next);
+        return next;
+      });
+    },
+    [cacheKey]
+  );
+
   const fetchLogs = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasCached(cacheKey)) setIsLoading(true);
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -62,11 +78,15 @@ export function useHabitLogs(date: string, enabledHabitKeys: string[] = []) {
     } finally {
       setIsLoading(false);
     }
-  }, [date, keysString]);
+  }, [date, keysString, cacheKey, setLogs]);
 
   useEffect(() => {
+    // On date change: swap in cached data instantly, then revalidate.
+    const cached = getCached<HabitLog[]>(cacheKey);
+    setLogsState(cached ?? []);
+    setIsLoading(cached === undefined);
     fetchLogs();
-  }, [fetchLogs]);
+  }, [cacheKey, fetchLogs]);
 
   // Get log for a specific habit
   const getLogForHabit = useCallback((habitKey: string): HabitLog | undefined => {

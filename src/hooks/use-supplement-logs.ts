@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 
 export interface SupplementLog {
   id: string;
@@ -15,12 +16,27 @@ export interface SupplementLog {
 }
 
 export function useSupplementLogs(date: string) {
-  const [logs, setLogs] = useState<SupplementLog[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `supplement_logs:${date}`;
+  const [logs, setLogsState] = useState<SupplementLog[]>(
+    () => getCached<SupplementLog[]>(cacheKey) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
 
+  // Write-through setter keeps the cache in sync with every state change.
+  const setLogs = useCallback(
+    (updater: React.SetStateAction<SupplementLog[]>) => {
+      setLogsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        setCached(cacheKey, next);
+        return next;
+      });
+    },
+    [cacheKey]
+  );
+
   const fetchLogs = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasCached(cacheKey)) setIsLoading(true);
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -41,11 +57,15 @@ export function useSupplementLogs(date: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [date]);
+  }, [date, cacheKey, setLogs]);
 
   useEffect(() => {
+    // On date change: swap in cached data instantly, then revalidate.
+    const cached = getCached<SupplementLog[]>(cacheKey);
+    setLogsState(cached ?? []);
+    setIsLoading(cached === undefined);
     fetchLogs();
-  }, [fetchLogs]);
+  }, [cacheKey, fetchLogs]);
 
   const addLog = async (
     supplementName: string,

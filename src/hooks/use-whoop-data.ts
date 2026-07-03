@@ -1,18 +1,24 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { WhoopDayData } from "@/lib/whoop/types";
 
 export function useWhoopData(date: string) {
-  const [data, setData] = useState<WhoopDayData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `whoop:${date}`;
+  const [data, setData] = useState<WhoopDayData | null>(
+    () => getCached<WhoopDayData | null>(cacheKey) ?? null
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(cacheKey));
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!date) return;
 
-    setIsLoading(true);
+    // Serve cached data instantly; only show a loading state on first visit.
+    // null is a valid cached value ("no Whoop data for this day").
+    if (!hasCached(cacheKey)) setIsLoading(true);
     setError(null);
 
     try {
@@ -24,6 +30,7 @@ export function useWhoopData(date: string) {
         setData(null);
       } else {
         setData(result.data);
+        setCached(cacheKey, result.data);
       }
     } catch {
       setError("Failed to fetch Whoop data");
@@ -31,7 +38,7 @@ export function useWhoopData(date: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [date]);
+  }, [date, cacheKey]);
 
   const sync = useCallback(async (days: number = 7) => {
     setIsSyncing(true);
@@ -63,8 +70,12 @@ export function useWhoopData(date: string) {
   }, [fetchData]);
 
   useEffect(() => {
+    // On date change: swap in cached data instantly, then revalidate.
+    const cached = getCached<WhoopDayData | null>(cacheKey);
+    setData(cached ?? null);
+    setIsLoading(!hasCached(cacheKey));
     fetchData();
-  }, [fetchData]);
+  }, [cacheKey, fetchData]);
 
   return {
     data,

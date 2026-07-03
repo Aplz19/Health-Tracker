@@ -2,15 +2,31 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { WorkoutSession, CachedWhoopWorkout } from "@/lib/supabase/types";
 
 export function useWorkoutSessions(date: string) {
-  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `workout_sessions:${date}`;
+  const [sessions, setSessionsState] = useState<WorkoutSession[]>(
+    () => getCached<WorkoutSession[]>(cacheKey) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
 
+  // Write-through setter keeps the cache in sync with every state change.
+  const setSessions = useCallback(
+    (updater: React.SetStateAction<WorkoutSession[]>) => {
+      setSessionsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        setCached(cacheKey, next);
+        return next;
+      });
+    },
+    [cacheKey]
+  );
+
   const fetchSessions = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasCached(cacheKey)) setIsLoading(true);
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -31,7 +47,7 @@ export function useWorkoutSessions(date: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [date]);
+  }, [date, cacheKey, setSessions]);
 
   // Create a new workout session for the date
   const startSession = async (name?: string, startTime?: string): Promise<WorkoutSession> => {
@@ -155,8 +171,12 @@ export function useWorkoutSessions(date: string) {
   };
 
   useEffect(() => {
+    // On date change: swap in cached data instantly, then revalidate.
+    const cached = getCached<WorkoutSession[]>(cacheKey);
+    setSessionsState(cached ?? []);
+    setIsLoading(cached === undefined);
     fetchSessions();
-  }, [fetchSessions]);
+  }, [cacheKey, fetchSessions]);
 
   return {
     sessions,

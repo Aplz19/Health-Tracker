@@ -16,7 +16,7 @@ export function FoodListItem<T extends Food>({ food, onEdit, onDelete }: FoodLis
     <Card className="p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <h4 className="font-medium text-sm truncate">{food.name}</h4>
+          <h4 className="font-medium text-sm leading-snug break-words line-clamp-2">{food.name}</h4>
           <p className="text-xs text-muted-foreground">{food.serving_size}</p>
           <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
             <span>{food.calories} cal</span>

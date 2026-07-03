@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 
 interface SupplementLog {
   id: string;
@@ -12,11 +13,18 @@ interface SupplementLog {
   updated_at: string;
 }
 
+interface SupplementCacheEntry {
+  amount: number;
+  hasRecord: boolean;
+}
+
 export function useSupplement(tableName: string, date: string, enabled: boolean = true) {
-  const [amount, setAmount] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `supplement:${tableName}:${date}`;
+  const cached0 = getCached<SupplementCacheEntry>(cacheKey);
+  const [amount, setAmount] = useState<number>(cached0?.amount ?? 0);
+  const [isLoading, setIsLoading] = useState(() => enabled && !hasCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
-  const [hasRecord, setHasRecord] = useState(false);
+  const [hasRecord, setHasRecord] = useState(cached0?.hasRecord ?? false);
 
   const fetchSupplement = useCallback(async () => {
     // Skip the query entirely for supplements the user isn't tracking. The
@@ -28,7 +36,15 @@ export function useSupplement(tableName: string, date: string, enabled: boolean 
       setHasRecord(false);
       return;
     }
-    setIsLoading(true);
+    // Serve cache instantly (date/table changes), then revalidate silently.
+    const cached = getCached<SupplementCacheEntry>(cacheKey);
+    if (cached !== undefined) {
+      setAmount(cached.amount);
+      setHasRecord(cached.hasRecord);
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -46,18 +62,21 @@ export function useSupplement(tableName: string, date: string, enabled: boolean 
         // No record exists for today
         setHasRecord(false);
         setAmount(0);
+        setCached(cacheKey, { amount: 0, hasRecord: false });
       } else if (error) {
         throw error;
       } else {
+        const fetched = (data as SupplementLog)?.amount ?? 0;
         setHasRecord(true);
-        setAmount((data as SupplementLog)?.amount ?? 0);
+        setAmount(fetched);
+        setCached(cacheKey, { amount: fetched, hasRecord: true });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to fetch ${tableName}`);
     } finally {
       setIsLoading(false);
     }
-  }, [tableName, date, enabled]);
+  }, [tableName, date, enabled, cacheKey]);
 
   const updateAmount = async (newAmount: number) => {
     setError(null);
@@ -81,6 +100,7 @@ export function useSupplement(tableName: string, date: string, enabled: boolean 
       if (error) throw error;
       setAmount(newAmount);
       setHasRecord(true);
+      setCached(cacheKey, { amount: newAmount, hasRecord: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : `Failed to update ${tableName}`;
       setError(message);

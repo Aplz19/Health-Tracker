@@ -2,15 +2,32 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { Meal } from "@/lib/supabase/types";
 
 export function useMeals(date: string) {
-  const [meals, setMeals] = useState<Meal[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `meals:${date}`;
+  const [meals, setMealsState] = useState<Meal[]>(() => getCached<Meal[]>(cacheKey) ?? []);
+  const [isLoading, setIsLoading] = useState(() => !hasCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
 
+  // Write-through setter: keeps the cache in sync with every state change so
+  // mutations survive tab switches / date changes without a refetch.
+  const setMeals = useCallback(
+    (updater: React.SetStateAction<Meal[]>) => {
+      setMealsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        setCached(cacheKey, next);
+        return next;
+      });
+    },
+    [cacheKey]
+  );
+
   const fetchMeals = useCallback(async () => {
-    setIsLoading(true);
+    // Only block the UI when there's nothing cached to show; otherwise this
+    // is a silent background revalidation (stale-while-revalidate).
+    if (!hasCached(cacheKey)) setIsLoading(true);
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -31,7 +48,7 @@ export function useMeals(date: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [date]);
+  }, [date, cacheKey, setMeals]);
 
   const addMeal = async () => {
     setError(null);
@@ -117,8 +134,13 @@ export function useMeals(date: string) {
   };
 
   useEffect(() => {
+    // On date change: swap in that date's cached data instantly (or empty +
+    // loading if never seen), then revalidate in the background.
+    const cached = getCached<Meal[]>(cacheKey);
+    setMealsState(cached ?? []);
+    setIsLoading(cached === undefined);
     fetchMeals();
-  }, [fetchMeals]);
+  }, [cacheKey, fetchMeals]);
 
   return {
     meals,

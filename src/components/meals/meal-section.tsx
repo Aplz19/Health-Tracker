@@ -176,7 +176,7 @@ export function MealSection({
                   className="flex-1 min-w-0 text-left hover:bg-muted/80 -m-2 p-2 rounded transition-colors"
                   onClick={() => setEditingLog(log)}
                 >
-                  <p className="font-medium truncate">{log.food.name}</p>
+                  <p className="font-medium leading-snug break-words line-clamp-2">{log.food.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {Math.round(log.food.calories * log.servings)} cal |{" "}
                     {Math.round(log.food.protein * log.servings)}g P |{" "}

@@ -224,7 +224,7 @@ export function AIFoodLogger({ userId, onFoodSelected, onClose }: AIFoodLoggerPr
                   className="flex items-center gap-2 p-3 rounded-md border bg-card"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{food.match.name}</p>
+                    <p className="font-medium leading-snug break-words line-clamp-2">{food.match.name}</p>
                     <p className="text-sm text-muted-foreground">
                       {food.parsed.amount} {food.parsed.unit} · {Math.round(food.match.calories * servings)} cal
                     </p>
