@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import { format, subDays, startOfDay } from "date-fns";
 
 export type TimeRange = "7d" | "30d" | "90d";
@@ -93,18 +94,23 @@ function getDaysForRange(range: TimeRange): number {
   }
 }
 
+const EMPTY_ANALYTICS: AnalyticsData = {
+  nutrition: [],
+  whoop: [],
+  creatine: [],
+  exercise: [],
+  cardio: [],
+};
+
 export function useAnalytics(range: TimeRange = "7d") {
-  const [data, setData] = useState<AnalyticsData>({
-    nutrition: [],
-    whoop: [],
-    creatine: [],
-    exercise: [],
-    cardio: [],
-  });
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `analytics:${range}`;
+  const [data, setData] = useState<AnalyticsData>(
+    () => getCached<AnalyticsData>(cacheKey) ?? EMPTY_ANALYTICS
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(cacheKey));
 
   const fetchData = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasCached(cacheKey)) setIsLoading(true);
     const days = getDaysForRange(range);
     const startDate = format(subDays(startOfDay(new Date()), days - 1), "yyyy-MM-dd");
     const endDate = format(new Date(), "yyyy-MM-dd");
@@ -311,17 +317,23 @@ export function useAnalytics(range: TimeRange = "7d") {
         totalMinutes: 0,
       });
 
-      setData({ nutrition, whoop, creatine, exercise, cardio });
+      const next = { nutrition, whoop, creatine, exercise, cardio };
+      setData(next);
+      setCached(cacheKey, next);
     } catch (error) {
       console.error("Failed to fetch analytics data:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [range]);
+  }, [range, cacheKey]);
 
   useEffect(() => {
+    // On range change: swap in cached data instantly, then revalidate.
+    const cached = getCached<AnalyticsData>(cacheKey);
+    setData(cached ?? EMPTY_ANALYTICS);
+    setIsLoading(cached === undefined);
     fetchData();
-  }, [fetchData]);
+  }, [cacheKey, fetchData]);
 
   return { data, isLoading, refetch: fetchData };
 }

@@ -73,6 +73,7 @@ export default function LoginPage() {
                 autoFocus
                 autoCapitalize="none"
                 autoCorrect="off"
+                autoComplete="username"
                 disabled={isLoading}
                 required
               />
@@ -88,6 +89,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10"
+                autoComplete="current-password"
                 disabled={isLoading}
                 required
               />

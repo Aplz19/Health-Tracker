@@ -70,8 +70,11 @@ These patterns exist deliberately — new code should follow them:
 
 ## Performance conventions
 
-- Heavy, rarely-used components are dynamically imported — e.g. the barcode
-  scanner (`quagga2`) loads only when opened.
+- Heavy, rarely-used components are dynamically imported so they stay out of
+  the main bundle: the barcode scanner (`quagga2`), the metric detail sheet
+  (sole consumer of `recharts`), and the date-picker calendar
+  (`react-day-picker`). Follow this pattern for any new heavy dependency that
+  renders behind a click.
 - `next.config.ts`: `optimizePackageImports` for lucide-react/date-fns/recharts;
   `console.*` stripped in production (error/warn kept).
 - Context providers memoize their `value` (and callbacks) so consumers don't

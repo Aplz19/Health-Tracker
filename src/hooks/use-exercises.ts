@@ -1,33 +1,40 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { Exercise, ExerciseInsert, ExerciseCategory } from "@/lib/supabase/types";
 
+const EXERCISES_CACHE_KEY = "exercises";
+
 export function useExercises(searchQuery: string = "", category?: ExerciseCategory) {
-  const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // The full exercise list is fetched ONCE (and session-cached); search and
+  // category filtering happen in memory. Previously every keystroke in the
+  // exercise search re-queried Supabase.
+  const [allExercises, setAllExercisesState] = useState<Exercise[]>(
+    () => getCached<Exercise[]>(EXERCISES_CACHE_KEY) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(EXERCISES_CACHE_KEY));
   const [error, setError] = useState<string | null>(null);
 
+  // Write-through setter keeps the session cache in sync.
+  const setExercises = useCallback((updater: React.SetStateAction<Exercise[]>) => {
+    setAllExercisesState((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      setCached(EXERCISES_CACHE_KEY, next);
+      return next;
+    });
+  }, []);
+
   const fetchExercises = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasCached(EXERCISES_CACHE_KEY)) setIsLoading(true);
     setError(null);
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from("exercises")
         .select("*")
         .order("category", { ascending: true })
         .order("name", { ascending: true });
-
-      if (searchQuery) {
-        query = query.ilike("name", `%${searchQuery}%`);
-      }
-
-      if (category) {
-        query = query.eq("category", category);
-      }
-
-      const { data, error } = await query;
 
       if (error) throw error;
       setExercises((data as Exercise[]) || []);
@@ -36,7 +43,20 @@ export function useExercises(searchQuery: string = "", category?: ExerciseCatego
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery, category]);
+  }, [setExercises]);
+
+  // In-memory filtering — instant, no network per keystroke.
+  const exercises = useMemo(() => {
+    let result = allExercises;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((e) => e.name.toLowerCase().includes(q));
+    }
+    if (category) {
+      result = result.filter((e) => e.category === category);
+    }
+    return result;
+  }, [allExercises, searchQuery, category]);
 
   const addExercise = async (exercise: Omit<ExerciseInsert, "user_id">) => {
     setError(null);

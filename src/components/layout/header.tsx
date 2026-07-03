@@ -19,7 +19,14 @@ import {
 import { useDailySummary } from "@/hooks/use-daily-summary";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
+import dynamic from "next/dynamic";
+
+// react-day-picker only renders inside the date popover — load it on demand
+// instead of shipping it in the main bundle.
+const Calendar = dynamic(
+  () => import("@/components/ui/calendar").then((m) => m.Calendar),
+  { ssr: false }
+);
 import {
   Popover,
   PopoverContent,

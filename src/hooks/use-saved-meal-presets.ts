@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { Food, SavedMealPreset, SavedMealPresetItem } from "@/lib/supabase/types";
 
 // Preset with joined food data
@@ -9,13 +10,29 @@ export interface SavedMealPresetWithItems extends SavedMealPreset {
   items: Array<SavedMealPresetItem & { food: Food }>;
 }
 
+const PRESETS_CACHE_KEY = "saved_meal_presets";
+
 export function useSavedMealPresets() {
-  const [presets, setPresets] = useState<SavedMealPresetWithItems[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [presets, setPresetsState] = useState<SavedMealPresetWithItems[]>(
+    () => getCached<SavedMealPresetWithItems[]>(PRESETS_CACHE_KEY) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(() => !hasCached(PRESETS_CACHE_KEY));
   const [error, setError] = useState<string | null>(null);
 
+  // Write-through setter keeps the session cache in sync.
+  const setPresets = useCallback(
+    (updater: React.SetStateAction<SavedMealPresetWithItems[]>) => {
+      setPresetsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        setCached(PRESETS_CACHE_KEY, next);
+        return next;
+      });
+    },
+    []
+  );
+
   const fetchPresets = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasCached(PRESETS_CACHE_KEY)) setIsLoading(true);
     setError(null);
 
     try {
@@ -55,7 +72,7 @@ export function useSavedMealPresets() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [setPresets]);
 
   useEffect(() => {
     fetchPresets();

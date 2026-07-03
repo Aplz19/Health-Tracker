@@ -3,8 +3,18 @@
 import { useState, useMemo } from "react";
 import { BarChart3 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import dynamic from "next/dynamic";
 import { MetricCard } from "@/components/analytics/metric-card";
-import { MetricDetailSheet } from "@/components/analytics/metric-detail-sheet";
+
+// The detail sheet is the ONLY consumer of recharts (the heaviest chart dep)
+// and only renders when a metric is tapped — keep it out of the main bundle.
+const MetricDetailSheet = dynamic(
+  () =>
+    import("@/components/analytics/metric-detail-sheet").then(
+      (m) => m.MetricDetailSheet
+    ),
+  { ssr: false }
+);
 import { useAnalytics, TIME_RANGE_OPTIONS, type TimeRange } from "@/hooks/use-analytics";
 import { useAnalyticsPreferencesContext } from "@/contexts/analytics-preferences-context";
 
