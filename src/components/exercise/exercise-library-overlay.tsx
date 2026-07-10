@@ -1,32 +1,38 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/contexts/app-context";
-import { ExercisePanel } from "./exercise-panel";
 import { cn } from "@/lib/utils";
+
+const ExercisePanel = dynamic(
+  () => import("./exercise-panel").then((m) => m.ExercisePanel),
+  {
+    loading: () => (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Loading exercise library...
+      </div>
+    ),
+  }
+);
 
 export function ExerciseLibraryOverlay() {
   const { isExerciseLibraryOpen, closeExerciseLibrary } = useApp();
-  const [panelKey, setPanelKey] = useState(0);
-
-  // Reset panel state when overlay opens
-  useEffect(() => {
-    if (isExerciseLibraryOpen) {
-      setPanelKey((k) => k + 1);
-    }
-  }, [isExerciseLibraryOpen]);
 
   return (
     <div
+      aria-hidden={!isExerciseLibraryOpen}
+      inert={!isExerciseLibraryOpen}
       className={cn(
         "fixed inset-0 z-[100] bg-background transition-transform duration-300 ease-in-out",
-        isExerciseLibraryOpen ? "translate-x-0" : "translate-x-full"
+        isExerciseLibraryOpen
+          ? "translate-x-0"
+          : "pointer-events-none translate-x-full"
       )}
     >
       {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center justify-between h-14 px-4 border-b bg-background">
+      <div className="sticky top-0 z-10 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-end justify-between border-b bg-background px-4 pb-3">
         <h1 className="text-lg font-semibold">Exercise Library</h1>
         <Button
           variant="ghost"
@@ -39,9 +45,9 @@ export function ExerciseLibraryOverlay() {
         </Button>
       </div>
 
-      {/* Content - key forces remount when opened to reset state */}
-      <div className="h-[calc(100dvh-3.5rem)]">
-        {isExerciseLibraryOpen && <ExercisePanel key={panelKey} />}
+      {/* Content mounts on demand and resets naturally each time it opens. */}
+      <div className="h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]">
+        {isExerciseLibraryOpen && <ExercisePanel />}
       </div>
     </div>
   );

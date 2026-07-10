@@ -1,135 +1,177 @@
 # Health Tracker
 
-Personal health-tracking PWA: diet/macros, workouts, supplements, habits, and
-Whoop (recovery/sleep/strain) in one place, with data stored in an
-AI-analysis-friendly shape (`daily_summaries`). Built by/for the owner,
-multi-user-ready underneath.
+Personal health-tracking PWA for diet/macros, workouts, supplements, habits,
+and Whoop recovery/sleep/strain. Data is stored in Supabase and summarized in
+an AI-analysis-friendly `daily_summaries` shape. It is built for the owner today
+with per-user boundaries underneath.
 
 ## Stack
 
-- **Next.js 16** (App Router, Turbopack) + React 19 + TypeScript
-- **Tailwind 4** + shadcn/Radix UI primitives (`src/components/ui`)
-- **Supabase** — Postgres + Auth + RLS; browser client in `src/lib/supabase`
-- **PWA** — installable on iOS (install from **Safari**; Chrome shortcuts don't
-  get standalone mode), manifest + icons in `public/`
-- Whoop OAuth sync (`src/app/api/whoop/*`, Vercel cron), Open Food Facts
-  barcode lookups, food embeddings for semantic search
-- Deployed on **Vercel**; pushing `main` deploys production
+- Next.js 16.2.10 (App Router/Turbopack), React 19, and TypeScript
+- Tailwind 4 with shadcn/Radix UI primitives
+- Supabase Postgres, Auth, RLS, and browser/server clients
+- Installable iOS/web PWA with manifest, icons, and a static-only service worker
+- Whoop OAuth sync, Open Food Facts barcode ingestion, and hybrid food search
+- Vercel deployment; pushing `main` deploys production
 
-## Layout
+## Repository layout
 
-```
+```text
 src/
-├── app/            Routes: page.tsx (SPA shell), login/signup, api/* routes
-├── components/     Feature components (tabs/, meals/, food/, workout/, ...)
-│   └── ui/         shadcn-style primitives (dialog, sheet, button, ...)
-├── contexts/       Auth, date, app overlays, per-user preference contexts
-├── hooks/          Data hooks — one per table/domain, Supabase + cache
-└── lib/            supabase/, whoop/, openfoodfacts/, client-cache, utils
-sql/                One-off migrations — run manually in the Supabase SQL editor
+|- app/            routes, auth pages, and authenticated api/* handlers
+|- components/     feature UI (tabs, meals, food, workout, settings, etc.)
+|  `- ui/          shared shadcn-style primitives
+|- contexts/       auth, date, overlay, and preference providers
+|- hooks/          Supabase-backed domain hooks and session caching
+`- lib/            Supabase, search, Whoop, Open Food Facts, cache, utilities
+sql/               staged/manual SQL migrations (no automatic runner)
+scripts/           restaurant validation and embedding maintenance
+docs/              operational setup notes
 ```
 
-## Data-layer conventions (read before adding a hook)
+## Data-layer conventions
 
-These patterns exist deliberately — new code should follow them:
+1. Client hooks use the local Supabase session; protected API routes verify the
+   signed-in user server-side. RLS remains the actual per-user security boundary.
+2. `src/lib/client-cache.ts` is a bounded 200-entry TTL/LRU memory cache. Hooks
+   seed from it, render cached data immediately, and revalidate in the
+   background. It is cleared on every authenticated-user transition.
+3. Hooks that must exist unconditionally accept an `enabled` flag and skip
+   unused queries. See `useSupplement`.
+4. Mutations update local state/cache after confirmed writes. Food logging now
+   awaits the database result and keeps failures visible instead of closing the
+   dialog silently.
+5. Durable settings belong in per-user Supabase tables, not bare localStorage.
+6. Browser food projections explicitly exclude the 1,536-number `embedding`
+   column. Daily-summary catalog lookups are ID-scoped rather than table-wide.
+7. `foods.name` is the item and nullable `brand` is the manufacturer/restaurant.
+   `source` is provenance (`manual`, `openfoodfacts`,
+   `restaurant_official`, etc.), not a display label.
 
-1. **Session, not user.** Client hooks call `supabase.auth.getSession()`
-   (local, instant) instead of `auth.getUser()` (network round-trip). RLS
-   enforces per-user security regardless. API routes still verify server-side.
-2. **Session cache (stale-while-revalidate).** `src/lib/client-cache.ts` is a
-   module-scope Map. Hooks seed state from it (`getCached`), only show a
-   loading state when nothing is cached (`hasCached`), write every state
-   change through to it (a wrapped `setX` that calls `setCached`), and
-   revalidate in the background on mount/date change. This is why switching
-   tabs/dates is instant after first visit. Cleared on sign-out.
-3. **Gate unused queries.** Hooks that must be instantiated unconditionally
-   (rules of hooks) accept an `enabled` flag and skip fetching when off — see
-   `useSupplement` (15 instances on the dietary tab, only enabled ones query).
-4. **Optimistic mutations.** Mutations update local state (and via the
-   write-through setter, the cache) immediately, then sync to Supabase.
-5. **Per-user, not per-device.** User settings live in Supabase tables
-   (e.g. `user_nutrition_goals`), *not* bare localStorage — localStorage is
-   per-browser and desyncs across devices. It's acceptable only as a cache
-   (see `use-nutrition-goals.ts`).
-6. **Personal-first food search.** Typing in the meal food picker filters the
-   session-cached personal library only, so it stays instant and makes no database
-   request per keystroke. Pressing Enter (or the globe button on mobile) explicitly
-   calls the global-food RPC. Global results may be logged directly; starring one
-   adds only its `user_food_library` link. Recent global query results are held in
-   the same session cache.
-7. **Brand is structured.** `foods.name` is the item name and nullable `brand` is
-   the manufacturer/restaurant. Search covers both plus aliases, while the UI omits
-   the brand line cleanly for unbranded custom foods; the manual-food form exposes
-   brand as an optional field. `source` remains provenance
-   (`manual`, `openfoodfacts`, `restaurant_official`, etc.), not a display brand.
+## Food discovery model
 
-## Mobile/iOS conventions
+The meal picker follows the intended personal-first interaction:
 
-- **Heights:** use `dvh` (`min-h-dvh`, `h-[100dvh]`, `max-h-[85dvh]`) — never
-  `100vh`, which is clipped by the iOS URL bar / home indicator.
-- **Full-screen dialogs:** `<DialogContent fullscreenOnMobile>` gives a
-  full-screen sheet on phones and a centered card on `sm+`. Layout inside is
-  sticky header / scrolling body / pinned footer. See
-  `src/components/meals/README.md` for details.
-- **Safe areas:** bottom sheets and pinned footers pad with
-  `env(safe-area-inset-bottom)`.
-- **No input zoom:** a global CSS rule (`globals.css`) forces form fields to
-  ≥16px on phones so iOS Safari doesn't zoom on focus. Don't undo it with
-  inline font sizes on inputs.
-- **Never `truncate` food/meal names** — use `line-clamp-2 break-words`
-  (names must stay readable; MFP-length product names are common).
+- Typing filters the session-cached personal library only. There is no network
+  request per keystroke.
+- Enter or the globe button calls authenticated `GET /api/food/search`.
+- The client aborts stale requests and accepts only the latest response.
+- Global results can be logged directly or starred into `user_food_library`.
+- Global query results use a bounded ten-minute cache.
+
+The server is upgrade-aware. It uses `search_foods_hybrid` when the v2 SQL is
+installed, the current lexical RPC during rollout, and a bounded legacy name
+search as a final compatibility path. It first probes capability without paying
+for an embedding, and remains lexical when `OPENAI_API_KEY` is absent.
+
+The target v2 search in `sql/add_food_search_v2.sql` provides:
+
+- stored normalized lexical text with active-only GIN/trigram indexes;
+- active-only HNSW cosine retrieval;
+- independent lexical and semantic candidates merged by reciprocal rank fusion;
+- exact lexical dominance plus a small `auth.uid()` library tie-break; and
+- embedding model/input-hash/update metadata for invalidation and backfills.
+
+Manual-food and library writes prefer ownership-scoped v2 RPCs and fall back to
+today's policies only while those RPCs are absent. Barcode foods are re-fetched
+from Open Food Facts and persisted through `POST /api/food/barcode`, so the
+browser cannot claim official provenance. That server-owned write requires
+`SUPABASE_SERVICE_ROLE_KEY`. The AI food-command route also derives the user
+from cookies and never accepts a caller-provided user ID.
+
+## Mobile, iOS, and PWA conventions
+
+- Use dynamic viewport units (`dvh`), not `100vh`.
+- Use `<DialogContent fullscreenOnMobile>` for phone-sized dialog flows.
+- Sticky headers/overlays account for both safe-area insets.
+- The viewport uses `viewport-fit=cover`, preserves pinch zoom, and form inputs
+  remain at least 16px on phones to avoid Safari focus zoom.
+- Mobile navigation controls have larger touch targets; long food/meal names use
+  `line-clamp-2 break-words` rather than `truncate`.
+- `public/sw.js` caches only same-origin static assets. Navigation, auth, API,
+  and user-data requests are network-only, preventing stale authenticated HTML
+  after sign-out or deployment.
+- Install on iOS from Safari. Chrome shortcuts do not receive the same
+  standalone mode.
 
 ## Performance conventions
 
-- Heavy, rarely-used components are dynamically imported so they stay out of
-  the main bundle: the barcode scanner (`quagga2`), the metric detail sheet
-  (sole consumer of `recharts`), and the date-picker calendar
-  (`react-day-picker`). Follow this pattern for any new heavy dependency that
-  renders behind a click.
-- `next.config.ts`: `optimizePackageImports` for lucide-react/date-fns/recharts;
-  `console.*` stripped in production (error/warn kept).
-- Context providers memoize their `value` (and callbacks) so consumers don't
-  re-render on unrelated state.
-- Search-over-loaded-data filters in memory (`useMemo`), not by refetching —
-  see `useUserFoodLibrary`.
+All five feature-tab bodies, the three library panels, settings, food/AI/preset
+dialogs, the Quagga barcode scanner, Recharts detail UI, and date picker are
+dynamically loaded behind interaction. Closed overlays are inert and do not
+mount their data hooks. This removed the prior duplicate library/preset query
+fan-out and cut initial uncompressed modern JavaScript by about 15.7% in the
+production-build comparison.
 
-## Database changes
+Analytics loads its five independent datasets in parallel. The client cache is
+bounded, global-search requests are cancellable, and food vectors are
+server/database-only. Keep heavy dependencies behind dynamic boundaries and
+filter already-loaded personal data with `useMemo`.
 
-Schema changes are plain SQL files in `sql/`, applied manually via the
-Supabase dashboard SQL editor (there is no migration runner). Follow the
-existing files' style: `CREATE TABLE IF NOT EXISTS`, enable RLS, add
-per-user policies. Pending: `add_nutrition_goals.sql` (goals sync).
+## Database rollout
 
-`sql/add_restaurant_food_import.sql` is intentionally **staged but unapplied**.
-It adds brand-aware global search, immutable restaurant-food version fields,
-`food_import_batches`, and row-level `food_provenance`. Authoritative refreshes
-insert a new food row and deactivate the prior version instead of changing
-nutrition underneath historical `food_logs`.
+SQL files are applied manually through the Supabase SQL editor. The restaurant
+and search migrations are intentionally **staged and unapplied**. The app works
+against today's schema through compatibility paths; no Supabase change is
+required to ship the frontend/runtime improvements.
 
-## Restaurant nutrition transfer (offline gate)
+After the offline restaurant bundle is accepted and a non-production database
+test succeeds, apply in this order:
 
-The Prometheus nutrition pipeline emits the
-`health-tracker-restaurant-foods-v1` bundle only from fully approved jobs with
-complete frontier row coverage. Validate a copied bundle without database access:
+1. `sql/add_vector_search.sql`
+2. `sql/add_restaurant_food_import.sql`
+3. `sql/add_food_search_v2.sql`
+4. `npm run generate-embeddings`
+
+The v2 migration adds indexed hybrid search, safe manual/library RPCs, restricted
+catalog writes, and a guarded ownership backfill. The backfill assigns existing
+manual foods only when exactly one auth user exists; it refuses to guess once
+there are multiple accounts. Configure `SUPABASE_SERVICE_ROLE_KEY` first so
+barcode persistence continues after direct catalog writes are revoked.
+
+Restaurant refreshes insert a new immutable nutrient row, deactivate the prior
+version, and preserve historical `food_logs`. Provenance remains linked through
+`food_import_batches` and `food_provenance`.
+
+## Restaurant nutrition offline gate
+
+The Prometheus collector emits `health-tracker-restaurant-foods-v1` only for
+fully approved jobs with complete frontier row coverage. Validate a copied
+bundle without database access:
 
 ```bash
 npm run validate-restaurant-import -- <bundle-directory>
 ```
 
-The validator checks file hashes, row counts, audit coverage, numeric mappings,
-version-key/active-identity uniqueness, and evidence linkage. It has no Supabase client and cannot
-write the database. Do not apply `add_restaurant_food_import.sql`, create an admin
-importer, or deploy the brand/global-search UI until the offline bundle review is
-accepted.
+The validator checks hashes, row counts, audit coverage, nutrient mappings,
+active/version uniqueness, and evidence links. It cannot write Supabase. The
+compatibility-safe search UI may ship independently, but do not apply the staged
+catalog/search migrations or import restaurant rows until this review passes.
 
-## Development
+## Development and verification
 
 ```bash
-npm run dev    # dev server on :3000
-npm run build  # production build + typecheck — run before pushing
+npm run dev
 npm run lint
+npm run test:unit
+npm run typecheck
+npm run build
+npm run check        # lint + unit + typecheck + production build
 ```
 
-Env lives in `.env.local` (Supabase URL/anon key, Whoop OAuth, cron secret,
-USDA key). In-repo design docs: `NOTES_food_database_plan.md`,
-`NOTES_daily_summary_feature.md`, `PLAN_multi_user_transition.md`, etc.
+The complete dependency tree passes `npm audit` with zero advisories. Next and
+`eslint-config-next` are pinned to 16.2.10; npm overrides enforce compatible
+PostCSS/ws security floors.
+
+The React 19 `set-state-in-effect` rule remains an error for components and is
+scoped to warning severity in `src/hooks/**/*.ts`. The current lint run is clean;
+the next bounded data-layer task is still to move legacy hooks to one shared
+cancellable query layer rather than independently recreating that machinery.
+
+Environment variables live in `.env.local`: Supabase URL/anon key, server-only
+service role, optional OpenAI key, Whoop OAuth, cron secret, and USDA key. Never
+give service-role or OpenAI secrets a `NEXT_PUBLIC_` prefix.
+
+See `docs/VECTOR-SEARCH-SETUP.md`, `NOTES_food_database_plan.md`,
+`NOTES_daily_summary_feature.md`, and `PLAN_multi_user_transition.md` for deeper
+domain notes.

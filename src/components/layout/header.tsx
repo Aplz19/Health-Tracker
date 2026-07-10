@@ -42,7 +42,9 @@ import {
 import { useDate } from "@/contexts/date-context";
 import { useApp } from "@/contexts/app-context";
 import { cn } from "@/lib/utils";
-import { SettingsModal } from "@/components/settings/settings-modal";
+const SettingsModal = dynamic(
+  () => import("@/components/settings/settings-modal").then((m) => m.SettingsModal)
+);
 
 export function Header() {
   const router = useRouter();
@@ -78,12 +80,12 @@ export function Header() {
     format(selectedDate, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 max-w-screen-md items-center justify-between px-4 mx-auto">
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-10 w-10 sm:h-8 sm:w-8">
                 <Menu className="h-5 w-5" />
                 <span className="sr-only">Open menu</span>
               </Button>
@@ -121,14 +123,14 @@ export function Header() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <h1 className="text-lg font-semibold tracking-tight">Health Tracker</h1>
+          <h1 className="hidden text-lg font-semibold tracking-tight sm:block">Health Tracker</h1>
         </div>
 
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-10 w-10 sm:h-8 sm:w-8"
             onClick={goToPreviousDay}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -140,7 +142,7 @@ export function Header() {
               <Button
                 variant="outline"
                 className={cn(
-                  "h-8 justify-start text-left font-normal",
+                  "h-10 px-2 text-xs justify-start text-left font-normal sm:h-8 sm:px-3 sm:text-sm",
                   !selectedDate && "text-muted-foreground"
                 )}
               >
@@ -161,7 +163,7 @@ export function Header() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-10 w-10 sm:h-8 sm:w-8"
             onClick={goToNextDay}
           >
             <ChevronRight className="h-4 w-4" />
@@ -172,7 +174,7 @@ export function Header() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-xs"
+              className="h-10 px-2 text-xs sm:h-8 sm:px-3"
               onClick={goToToday}
             >
               Today
@@ -180,7 +182,9 @@ export function Header() {
           )}
         </div>
       </div>
-      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
+      {settingsOpen && (
+        <SettingsModal open onOpenChange={setSettingsOpen} />
+      )}
     </header>
   );
 }

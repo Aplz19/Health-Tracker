@@ -1,17 +1,45 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DietaryTab } from "@/components/tabs/dietary-tab";
-import { WhoopTab } from "@/components/tabs/whoop-tab";
-import { WorkoutTab } from "@/components/tabs/workout-tab";
-import { HabitsTab } from "@/components/tabs/habits-tab";
-import { AnalyticsTab } from "@/components/tabs/analytics-tab";
 import { Apple, Activity, Dumbbell, BarChart3, ListChecks } from "lucide-react";
+
+function TabLoading() {
+  return (
+    <div className="p-8 text-center text-sm text-muted-foreground">
+      Loading...
+    </div>
+  );
+}
+
+// Each feature tab owns a sizable UI/data graph. Keeping them behind dynamic
+// boundaries means the initial dietary view does not also download every
+// inactive tab.
+const DietaryTab = dynamic(
+  () => import("@/components/tabs/dietary-tab").then((m) => m.DietaryTab),
+  { loading: TabLoading }
+);
+const WorkoutTab = dynamic(
+  () => import("@/components/tabs/workout-tab").then((m) => m.WorkoutTab),
+  { loading: TabLoading }
+);
+const HabitsTab = dynamic(
+  () => import("@/components/tabs/habits-tab").then((m) => m.HabitsTab),
+  { loading: TabLoading }
+);
+const WhoopTab = dynamic(
+  () => import("@/components/tabs/whoop-tab").then((m) => m.WhoopTab),
+  { loading: TabLoading }
+);
+const AnalyticsTab = dynamic(
+  () => import("@/components/tabs/analytics-tab").then((m) => m.AnalyticsTab),
+  { loading: TabLoading }
+);
 
 export function TabNavigation() {
   return (
     <Tabs defaultValue="dietary" className="w-full">
-      <TabsList className="grid w-full grid-cols-5 sticky top-14 z-40 bg-background">
+      <TabsList className="grid h-11 w-full grid-cols-5 sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-40 bg-background sm:h-9">
         <TabsTrigger value="dietary" className="flex items-center gap-1.5">
           <Apple className="h-4 w-4" />
           <span className="hidden sm:inline">Dietary</span>

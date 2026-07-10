@@ -23,11 +23,12 @@ function formatTime(hour: number, minute: number, isPm: boolean): string {
 export async function aggregateDailyData(date: string, userId: string): Promise<DailySummaryData> {
   const supabase = getServerSupabase();
 
-  // Fetch all data in parallel
+  // Fetch only this user's rows for the selected day. Catalog lookups happen
+  // in a second, ID-scoped phase so summary generation never downloads every
+  // food, exercise, and set in the database.
   const [
     mealsResult,
     foodLogsResult,
-    foodsResult,
     creatineResult,
     d3Result,
     k2Result,
@@ -37,14 +38,11 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
     melatoninResult,
     caffeineResult,
     exerciseLogsResult,
-    exerciseSetsResult,
-    exercisesResult,
     treadmillResult,
     whoopResult,
   ] = await Promise.all([
     supabase.from("meals").select("*").eq("date", date).eq("user_id", userId).order("time_hour").order("time_minute"),
     supabase.from("food_logs").select("*").eq("date", date).eq("user_id", userId),
-    supabase.from("foods").select("*"),
     supabase.from("creatine_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
     supabase.from("d3_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
     supabase.from("k2_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
@@ -54,19 +52,42 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
     supabase.from("melatonin_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
     supabase.from("caffeine_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
     supabase.from("exercise_logs").select("*").eq("date", date).eq("user_id", userId),
-    supabase.from("exercise_sets").select("*"),
-    supabase.from("exercises").select("*"),
     supabase.from("treadmill_sessions").select("*").eq("date", date).eq("user_id", userId),
     supabase.from("whoop_data").select("*").eq("date", date).eq("user_id", userId).single(),
   ]);
 
   const meals = mealsResult.data || [];
   const foodLogs = foodLogsResult.data || [];
-  const foods = foodsResult.data || [];
   const exerciseLogs = exerciseLogsResult.data || [];
+  const treadmillSessions = treadmillResult.data || [];
+
+  const foodIds = [...new Set(foodLogs.map((log) => log.food_id))];
+  const exerciseLogIds = exerciseLogs.map((log) => log.id);
+  const exerciseIds = [...new Set(exerciseLogs.map((log) => log.exercise_id))];
+
+  const [foodsResult, exerciseSetsResult, exercisesResult] = await Promise.all([
+    foodIds.length > 0
+      ? supabase
+          .from("foods")
+          .select(
+            "id, name, serving_size, calories, protein, total_fat, total_carbohydrates, fiber, sugar, sodium, saturated_fat, vitamin_a, vitamin_c, vitamin_d, calcium, iron"
+          )
+          .in("id", foodIds)
+      : Promise.resolve({ data: [], error: null }),
+    exerciseLogIds.length > 0
+      ? supabase
+          .from("exercise_sets")
+          .select("id, log_id, set_number, is_warmup, reps, weight, notes")
+          .in("log_id", exerciseLogIds)
+      : Promise.resolve({ data: [], error: null }),
+    exerciseIds.length > 0
+      ? supabase.from("exercises").select("id, name, category").in("id", exerciseIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  const foods = foodsResult.data || [];
   const exerciseSets = exerciseSetsResult.data || [];
   const exercises = exercisesResult.data || [];
-  const treadmillSessions = treadmillResult.data || [];
 
   // Create lookup maps
   const foodsMap = new Map(foods.map((f) => [f.id, f]));

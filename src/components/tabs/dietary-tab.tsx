@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Plus, Copy, X, Pill } from "lucide-react";
 import { useDate } from "@/contexts/date-context";
 import { useApp } from "@/contexts/app-context";
@@ -28,10 +28,6 @@ function ManualSupplementRow({
   onUpdate: (value: number) => void;
 }) {
   const [value, setValue] = useState(amount.toString());
-
-  useEffect(() => {
-    setValue(amount.toString());
-  }, [amount]);
 
   const handleBlur = () => {
     const numValue = parseFloat(value) || 0;
@@ -138,6 +134,7 @@ function SupplementRowWrapper({
 
   return (
     <ManualSupplementRow
+      key={`${supplement.definition.key}:${supplementHook.amount}`}
       supplement={supplement}
       amount={supplementHook.amount}
       onUpdate={supplementHook.updateAmount}
@@ -224,7 +221,9 @@ export function DietaryTab() {
   const fillFromYesterday = async () => {
     setIsFilling(true);
     try {
-      const yesterday = format(subDays(new Date(dateString), 1), "yyyy-MM-dd");
+      // selectedDate is already local time. Parsing its YYYY-MM-DD string with
+      // new Date() treats it as UTC and can skip an extra day in US time zones.
+      const yesterday = format(subDays(selectedDate, 1), "yyyy-MM-dd");
 
       // Only fill enabled supplements
       await Promise.all(

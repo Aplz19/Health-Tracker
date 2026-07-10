@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { Food, SavedMealPreset, SavedMealPresetItem } from "@/lib/supabase/types";
+import { FOOD_CLIENT_COLUMNS, normalizeFood } from "@/lib/food/client-food";
 
 // Preset with joined food data
 export interface SavedMealPresetWithItems extends SavedMealPreset {
@@ -48,7 +49,7 @@ export function useSavedMealPresets() {
           *,
           items:saved_meal_preset_items (
             *,
-            food:foods (*)
+            food:foods (${FOOD_CLIENT_COLUMNS})
           )
         `
         )
@@ -58,12 +59,16 @@ export function useSavedMealPresets() {
       if (error) throw error;
 
       // Sort items within each preset by sort_order
-      const sorted = (data || []).map((preset) => ({
+      const rows = (data || []) as unknown as Array<SavedMealPreset & {
+        items: Array<SavedMealPresetItem & {
+          food: Parameters<typeof normalizeFood>[0];
+        }>;
+      }>;
+      const sorted = rows.map((preset) => ({
         ...preset,
-        items: preset.items.sort(
-          (a: SavedMealPresetItem, b: SavedMealPresetItem) =>
-            a.sort_order - b.sort_order
-        ),
+        items: preset.items
+          .map((item) => ({ ...item, food: normalizeFood(item.food) }))
+          .sort((a, b) => a.sort_order - b.sort_order),
       }));
 
       setPresets(sorted as SavedMealPresetWithItems[]);
@@ -78,31 +83,54 @@ export function useSavedMealPresets() {
     fetchPresets();
   }, [fetchPresets]);
 
-  // Create a new preset
-  const createPreset = async (name: string): Promise<SavedMealPreset> => {
+  // Create or replace a preset with a bounded number of database requests.
+  // The legacy implementation refetched the full preset graph after every
+  // individual item delete/insert, making an N-item edit roughly 2N queries.
+  const savePreset = async (
+    name: string,
+    items: Array<{ foodId: string; servings: number }>,
+    presetId?: string
+  ): Promise<void> => {
     const { data: { session } } = await supabase.auth.getSession();
     const user = session?.user;
     if (!user) throw new Error("Not authenticated");
 
-    const { data, error } = await supabase
-      .from("saved_meal_presets")
-      .insert({ user_id: user.id, name })
-      .select()
-      .single();
+    let id = presetId;
+    if (id) {
+      const { error } = await supabase
+        .from("saved_meal_presets")
+        .update({ name, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("user_id", user.id);
+      if (error) throw error;
 
-    if (error) throw error;
-    await fetchPresets();
-    return data as SavedMealPreset;
-  };
+      const { error: deleteError } = await supabase
+        .from("saved_meal_preset_items")
+        .delete()
+        .eq("preset_id", id);
+      if (deleteError) throw deleteError;
+    } else {
+      const { data, error } = await supabase
+        .from("saved_meal_presets")
+        .insert({ user_id: user.id, name })
+        .select("id")
+        .single();
+      if (error) throw error;
+      id = data.id;
+    }
 
-  // Update preset name
-  const updatePreset = async (presetId: string, name: string): Promise<void> => {
-    const { error } = await supabase
-      .from("saved_meal_presets")
-      .update({ name, updated_at: new Date().toISOString() })
-      .eq("id", presetId);
+    if (items.length > 0) {
+      const { error } = await supabase.from("saved_meal_preset_items").insert(
+        items.map((item, sortOrder) => ({
+          preset_id: id!,
+          food_id: item.foodId,
+          servings: item.servings,
+          sort_order: sortOrder,
+        }))
+      );
+      if (error) throw error;
+    }
 
-    if (error) throw error;
     await fetchPresets();
   };
 
@@ -117,61 +145,12 @@ export function useSavedMealPresets() {
     setPresets((prev) => prev.filter((p) => p.id !== presetId));
   };
 
-  // Add food to a preset
-  const addItemToPreset = async (
-    presetId: string,
-    foodId: string,
-    servings: number
-  ): Promise<void> => {
-    const preset = presets.find((p) => p.id === presetId);
-    const sortOrder = preset ? preset.items.length : 0;
-
-    const { error } = await supabase.from("saved_meal_preset_items").insert({
-      preset_id: presetId,
-      food_id: foodId,
-      servings,
-      sort_order: sortOrder,
-    });
-
-    if (error) throw error;
-    await fetchPresets();
-  };
-
-  // Update item servings in a preset
-  const updateItemServings = async (
-    itemId: string,
-    servings: number
-  ): Promise<void> => {
-    const { error } = await supabase
-      .from("saved_meal_preset_items")
-      .update({ servings })
-      .eq("id", itemId);
-
-    if (error) throw error;
-    await fetchPresets();
-  };
-
-  // Remove item from a preset
-  const removeItemFromPreset = async (itemId: string): Promise<void> => {
-    const { error } = await supabase
-      .from("saved_meal_preset_items")
-      .delete()
-      .eq("id", itemId);
-
-    if (error) throw error;
-    await fetchPresets();
-  };
-
   return {
     presets,
     isLoading,
     error,
-    createPreset,
-    updatePreset,
+    savePreset,
     deletePreset,
-    addItemToPreset,
-    updateItemServings,
-    removeItemFromPreset,
     refetch: fetchPresets,
   };
 }

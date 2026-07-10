@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -132,21 +132,15 @@ function HabitConfigDialog({
   open,
   onOpenChange,
 }: {
-  habitKey: string | null;
+  habitKey: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const { getAllHabits, setTrackingMode, setGoalAmount } = useHabitPreferencesContext();
-  const [localGoal, setLocalGoal] = useState("");
-
-  // Get fresh habit data from context on every render
-  const habit = habitKey ? getAllHabits().find(h => h.definition.key === habitKey) : null;
-
-  useEffect(() => {
-    if (habit) {
-      setLocalGoal(habit.goalAmount.toString());
-    }
-  }, [habit?.goalAmount]);
+  const habit = getAllHabits().find((item) => item.definition.key === habitKey);
+  const [localGoal, setLocalGoal] = useState(
+    () => habit?.goalAmount.toString() ?? ""
+  );
 
   if (!habit) return null;
 
@@ -395,11 +389,14 @@ export function HabitsSettings() {
         </div>
       )}
 
-      <HabitConfigDialog
-        habitKey={configHabitKey}
-        open={configHabitKey !== null}
-        onOpenChange={(open) => !open && setConfigHabitKey(null)}
-      />
+      {configHabitKey && (
+        <HabitConfigDialog
+          key={configHabitKey}
+          habitKey={configHabitKey}
+          open
+          onOpenChange={(open) => !open && setConfigHabitKey(null)}
+        />
+      )}
     </div>
   );
 }

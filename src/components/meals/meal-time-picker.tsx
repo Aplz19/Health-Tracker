@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface MealTimePickerProps {
   hour: number;
@@ -19,13 +19,6 @@ export function MealTimePicker({
   const [hourInput, setHourInput] = useState(hour.toString().padStart(2, "0"));
   const [minuteInput, setMinuteInput] = useState(minute.toString().padStart(2, "0"));
   const [localIsPm, setLocalIsPm] = useState(isPm);
-
-  // Sync with props when they change externally
-  useEffect(() => {
-    setHourInput(hour.toString().padStart(2, "0"));
-    setMinuteInput(minute.toString().padStart(2, "0"));
-    setLocalIsPm(isPm);
-  }, [hour, minute, isPm]);
 
   const commitHour = (value: string) => {
     let num = parseInt(value) || 12;

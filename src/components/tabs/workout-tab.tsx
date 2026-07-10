@@ -208,7 +208,7 @@ export function WorkoutTab() {
   const { selectedDate } = useDate();
   const dateString = format(selectedDate, "yyyy-MM-dd");
 
-  const { logs, isLoading, addLog, deleteLog, addSet, updateSet, deleteSet, refetch: refetchLogs } =
+  const { logs, isLoading: isExerciseLoading, addLog, deleteLog, addSet, updateSet, deleteSet, refetch: refetchLogs } =
     useExerciseLogs(dateString);
   const {
     sessions: cardioSessions,
@@ -229,6 +229,7 @@ export function WorkoutTab() {
   const [isExerciseDialogOpen, setIsExerciseDialogOpen] = useState(false);
   const [isWorkoutDialogOpen, setIsWorkoutDialogOpen] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const isWorkoutLoading = isExerciseLoading || isSessionLoading;
 
   // Group exercises by session_id
   const exercisesBySession = useMemo(() => {
@@ -290,14 +291,14 @@ export function WorkoutTab() {
       </div>
 
       {/* Loading */}
-      {isSessionLoading && (
+      {isWorkoutLoading && (
         <div className="text-center text-sm text-muted-foreground py-8">
           Loading...
         </div>
       )}
 
       {/* Empty State */}
-      {!isSessionLoading && workoutSessions.length === 0 && (
+      {!isWorkoutLoading && workoutSessions.length === 0 && (
         <div className="rounded-lg border-2 border-dashed border-muted p-8 text-center">
           <p className="text-sm text-muted-foreground mb-2">No workouts yet</p>
           <p className="text-xs text-muted-foreground">
@@ -307,7 +308,7 @@ export function WorkoutTab() {
       )}
 
       {/* Workout Session Cards */}
-      {!isSessionLoading && workoutSessions.length > 0 && (
+      {!isWorkoutLoading && workoutSessions.length > 0 && (
         <div className="space-y-4">
           {workoutSessions.map((session) => (
             <WorkoutSessionCard
@@ -346,11 +347,13 @@ export function WorkoutTab() {
       />
 
       {/* Add Workout Dialog */}
-      <AddWorkoutDialog
-        open={isWorkoutDialogOpen}
-        onOpenChange={setIsWorkoutDialogOpen}
-        onConfirm={handleCreateWorkout}
-      />
+      {isWorkoutDialogOpen && (
+        <AddWorkoutDialog
+          open
+          onOpenChange={setIsWorkoutDialogOpen}
+          onConfirm={handleCreateWorkout}
+        />
+      )}
 
       {/* Exercise Picker Dialog */}
       <ExercisePickerDialog

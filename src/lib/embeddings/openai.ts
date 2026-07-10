@@ -1,43 +1,49 @@
-/**
- * OpenAI embeddings utilities for semantic search
- */
+/** Server-only OpenAI embedding utilities for semantic food search. */
 
-export async function generateEmbedding(text: string): Promise<number[]> {
+export const FOOD_EMBEDDING_MODEL = "text-embedding-3-small";
+
+interface EmbeddingResponse {
+  data?: Array<{ index: number; embedding: number[] }>;
+  error?: { message?: string };
+}
+
+export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) return [];
+
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY environment variable is not set');
   }
 
-  const response = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
+  const response = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    signal: AbortSignal.timeout(15_000),
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'text-embedding-3-small',
-      input: text,
+      model: FOOD_EMBEDDING_MODEL,
+      input: texts,
     }),
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OpenAI API error: ${response.statusText} - ${error}`);
+    throw new Error(`Embedding request failed with HTTP ${response.status}`);
   }
 
-  const data = await response.json();
-  return data.data[0].embedding;
+  const payload = (await response.json()) as EmbeddingResponse;
+  if (!payload.data || payload.data.length !== texts.length) {
+    throw new Error(payload.error?.message || "Embedding response was incomplete");
+  }
+
+  return payload.data
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.embedding);
 }
 
-/**
- * Create search text from food name and serving size
- * This is what we'll generate embeddings for
- */
-export function createFoodSearchText(name: string, servingSize?: string): string {
-  const parts = [name];
-  if (servingSize) {
-    parts.push(servingSize);
-  }
-  return parts.join(' ').toLowerCase();
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const [embedding] = await generateEmbeddings([text]);
+  return embedding;
 }

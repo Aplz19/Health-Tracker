@@ -13,6 +13,7 @@ export function FoodPanel() {
   const [currentView, setCurrentView] = useState<PanelView>("library");
   const [searchQuery, setSearchQuery] = useState("");
   const [editingFood, setEditingFood] = useState<LibraryFood | null>(null);
+  const [formKey, setFormKey] = useState(0);
 
   const {
     foods,
@@ -24,11 +25,13 @@ export function FoodPanel() {
 
   const showAddForm = () => {
     setEditingFood(null);
+    setFormKey((key) => key + 1);
     setCurrentView("add-form");
   };
 
   const showEditForm = (food: LibraryFood) => {
     setEditingFood(food);
+    setFormKey((key) => key + 1);
     setCurrentView("add-form");
   };
 
@@ -79,7 +82,6 @@ export function FoodPanel() {
       supersedes_food_id: null,
       source_category: null,
       variant_label: null,
-      embedding: null,
     });
   };
 
@@ -109,6 +111,7 @@ export function FoodPanel() {
         {/* Add/Edit Form View */}
         <div className="w-1/2 h-full">
           <AddFoodFormView
+            key={formKey}
             editingFood={editingFood}
             onBack={showLibrary}
             onSubmit={async (data) => {

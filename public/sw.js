@@ -1,87 +1,50 @@
-const CACHE_NAME = 'health-tracker-v1';
+const CACHE_NAME = "health-tracker-static-v2";
+const PRECACHE_ASSETS = ["/manifest.json", "/icon-192.png", "/icon-512.png"];
 
-// Assets to cache immediately on install
-const PRECACHE_ASSETS = [
-  '/',
-  '/manifest.json',
-];
-
-// Install event - precache essential assets
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_ASSETS);
-    })
-  );
-  self.skipWaiting();
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_ASSETS)));
 });
 
-// Activate event - clean up old caches
-self.addEventListener('activate', (event) => {
+self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      );
-    })
+    caches.keys().then((names) =>
+      Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)))
+    )
   );
   self.clients.claim();
 });
 
-// Fetch event - network first for API, cache first for static assets
-self.addEventListener('fetch', (event) => {
+function isStaticAsset(url) {
+  return (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname === "/manifest.json" ||
+    /\.(?:png|svg|webp|ico|woff2?)$/i.test(url.pathname)
+  );
+}
+
+self.addEventListener("fetch", (event) => {
   const { request } = event;
+  if (request.method !== "GET") return;
+
   const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
 
-  // Skip non-GET requests
-  if (request.method !== 'GET') return;
+  // HTML, auth, APIs, and user data are always network-only. Caching an
+  // authenticated page can expose stale data after sign-out or a deployment.
+  if (request.mode === "navigate" || url.pathname.startsWith("/api/")) return;
+  if (!isStaticAsset(url)) return;
 
-  // Skip chrome-extension and other non-http(s) requests
-  if (!url.protocol.startsWith('http')) return;
-
-  // Network-first for API routes and Supabase calls (want fresh data)
-  if (url.pathname.startsWith('/api/') || url.hostname.includes('supabase')) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          return response;
-        })
-        .catch(() => {
-          return caches.match(request);
-        })
-    );
-    return;
-  }
-
-  // Cache-first for static assets (JS, CSS, images)
   event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cache but also update in background
-        event.waitUntil(
-          fetch(request).then((response) => {
-            if (response.ok) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(request, response);
-              });
-            }
-          }).catch(() => {})
-        );
-        return cachedResponse;
-      }
-
-      // Not in cache - fetch and cache
-      return fetch(request).then((response) => {
-        if (response.ok && response.type === 'basic') {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseToCache);
-          });
+    caches.match(request).then((cached) => {
+      const network = fetch(request).then((response) => {
+        if (response.ok && response.type === "basic") {
+          event.waitUntil(
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()))
+          );
         }
         return response;
       });
+      return cached || network;
     })
   );
 });

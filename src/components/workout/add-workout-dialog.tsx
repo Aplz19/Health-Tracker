@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -31,15 +31,8 @@ export function AddWorkoutDialog({
   onOpenChange,
   onConfirm,
 }: AddWorkoutDialogProps) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(getDefaultWorkoutName);
   const [isCreating, setIsCreating] = useState(false);
-
-  // Reset and set default name when dialog opens
-  useEffect(() => {
-    if (open) {
-      setName(getDefaultWorkoutName());
-    }
-  }, [open]);
 
   const handleConfirm = async () => {
     setIsCreating(true);

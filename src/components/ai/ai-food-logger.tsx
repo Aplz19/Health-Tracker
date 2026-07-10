@@ -27,20 +27,13 @@ interface FoodMatch {
   source?: "manual" | "usda" | "openfoodfacts" | "restaurant_official";
 }
 
-interface FoodResultWithParsed {
-  parsed: ParsedFoodItem;
-  matches: FoodMatch[];
-}
-
 interface SelectedFood {
   parsed: ParsedFoodItem;
   match: FoodMatch;
 }
 
 interface AIFoodLoggerProps {
-  userId: string;
   onFoodSelected: (food: FoodMatch, amount: number, unit: string, mealType?: string) => void;
-  onClose?: () => void;
 }
 
 // Unit conversion map
@@ -87,7 +80,7 @@ function calculateServings(food: FoodMatch, amount: number, unit: string): numbe
   return amount;
 }
 
-export function AIFoodLogger({ userId, onFoodSelected, onClose }: AIFoodLoggerProps) {
+export function AIFoodLogger({ onFoodSelected }: AIFoodLoggerProps) {
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +97,7 @@ export function AIFoodLogger({ userId, onFoodSelected, onClose }: AIFoodLoggerPr
       const response = await fetch('/api/ai/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, userId }),
+        body: JSON.stringify({ text }),
       });
 
       const data = await response.json();

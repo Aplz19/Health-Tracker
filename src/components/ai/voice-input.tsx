@@ -1,6 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useSyncExternalStore,
+} from 'react';
 import { Mic, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -9,18 +15,63 @@ interface VoiceInputProps {
   disabled?: boolean;
 }
 
-// Extend Window type for webkit speech recognition
+interface BrowserSpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  readonly [index: number]: { readonly transcript: string };
+}
+
+interface BrowserSpeechRecognitionEvent {
+  readonly resultIndex: number;
+  readonly results: {
+    readonly length: number;
+    readonly [index: number]: BrowserSpeechRecognitionResult;
+  };
+}
+
+interface BrowserSpeechRecognitionErrorEvent {
+  readonly error: string;
+}
+
+interface BrowserSpeechRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+
+interface BrowserSpeechRecognitionConstructor {
+  new (): BrowserSpeechRecognition;
+}
+
+// Web Speech is still vendor-prefixed in Safari and is not declared by
+// TypeScript's standard DOM library.
 declare global {
   interface Window {
-    webkitSpeechRecognition: any;
-    SpeechRecognition: any;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
   }
 }
 
+const subscribeToSpeechSupport = () => () => {};
+const getSpeechSupportSnapshot = () =>
+  Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+const getServerSpeechSupportSnapshot = () => true;
+
 export function VoiceInput({ onComplete, disabled }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false);
-  const [isSupported, setIsSupported] = useState(true);
-  const recognitionRef = useRef<any>(null);
+  const isSupported = useSyncExternalStore(
+    subscribeToSpeechSupport,
+    getSpeechSupportSnapshot,
+    getServerSpeechSupportSnapshot
+  );
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const finalTranscriptRef = useRef('');
   const isListeningRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
@@ -35,7 +86,6 @@ export function VoiceInput({ onComplete, disabled }: VoiceInputProps) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setIsSupported(false);
       return;
     }
 
@@ -51,7 +101,7 @@ export function VoiceInput({ onComplete, disabled }: VoiceInputProps) {
       finalTranscriptRef.current = '';
     };
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event) => {
       let finalTranscript = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -67,7 +117,7 @@ export function VoiceInput({ onComplete, disabled }: VoiceInputProps) {
       }
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
         setIsListening(false);
@@ -80,7 +130,7 @@ export function VoiceInput({ onComplete, disabled }: VoiceInputProps) {
       if (isListeningRef.current && recognitionRef.current) {
         try {
           recognitionRef.current.start();
-        } catch (e) {
+        } catch {
           // Ignore if already started
         }
       }

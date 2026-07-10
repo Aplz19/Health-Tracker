@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,19 +20,11 @@ export function AddExerciseForm({
   onSubmit,
   onCancel,
 }: AddExerciseFormProps) {
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState<ExerciseCategory | null>(defaultCategory || null);
+  const [name, setName] = useState(editingExercise?.name ?? "");
+  const [category, setCategory] = useState<ExerciseCategory | null>(
+    editingExercise?.category ?? defaultCategory ?? null
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (editingExercise) {
-      setName(editingExercise.name);
-      setCategory(editingExercise.category);
-    } else {
-      setName("");
-      setCategory(defaultCategory || null);
-    }
-  }, [editingExercise, defaultCategory]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

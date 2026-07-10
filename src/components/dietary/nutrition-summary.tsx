@@ -150,12 +150,14 @@ export function NutritionSummary({ logs }: NutritionSummaryProps) {
         goals={calculatedGoals}
       />
 
-      <NutritionSettingsSheet
-        open={isSettingsOpen}
-        onOpenChange={setIsSettingsOpen}
-        goals={goals}
-        onSave={saveGoals}
-      />
+      {isSettingsOpen && (
+        <NutritionSettingsSheet
+          open
+          onOpenChange={setIsSettingsOpen}
+          goals={goals}
+          onSave={saveGoals}
+        />
+      )}
     </>
   );
 }

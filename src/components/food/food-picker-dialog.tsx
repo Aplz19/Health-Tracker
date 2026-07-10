@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Search, ArrowLeft, Database, Globe2, Loader2, ScanBarcode, Plus, Star, Pencil, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -173,12 +173,6 @@ function parseAllServingSizes(servingSize: string, servingSizeGrams: number | nu
   return results;
 }
 
-// Legacy function for backwards compatibility - returns first parsed unit
-function parseServingSize(servingSize: string, servingSizeGrams: number | null): ParsedServing | null {
-  const all = parseAllServingSizes(servingSize, servingSizeGrams);
-  return all.length > 0 ? all[0] : null;
-}
-
 // Get display name for unit
 function getUnitDisplayName(unit: string): string {
   const unitNames: Record<string, string> = {
@@ -219,8 +213,8 @@ interface FoodPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mealTitle: string;
-  onSelectFood: (food: Food, servings: number) => void;
-  onSelectSavedMeal?: (preset: SavedMealPresetWithItems) => void;
+  onSelectFood: (food: Food, servings: number) => void | Promise<void>;
+  onSelectSavedMeal?: (preset: SavedMealPresetWithItems) => void | Promise<void>;
   mode?: "default" | "food-only"; // food-only hides saved meals tab (used when nested)
 }
 
@@ -404,13 +398,14 @@ export function FoodPickerDialog({
   const [unit, setUnit] = useState<UnitType>("serving");
   const [amount, setAmount] = useState<number>(1);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState<number>(0); // Which unit to use when multiple available
-  const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [recentIds, setRecentIds] = useState<string[]>(getRecentFoodIds);
   const [isSaving, setIsSaving] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [savingGlobalId, setSavingGlobalId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"foods" | "saved">("foods");
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [editingPreset, setEditingPreset] = useState<SavedMealPresetWithItems | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // User's personal food library
   const {
@@ -432,17 +427,9 @@ export function FoodPickerDialog({
   const {
     presets,
     isLoading: isLoadingPresets,
-    createPreset,
-    updatePreset,
+    savePreset,
     deletePreset,
-    addItemToPreset,
-    removeItemFromPreset,
   } = useSavedMealPresets();
-
-  // Load recent food IDs on mount
-  useEffect(() => {
-    setRecentIds(getRecentFoodIds());
-  }, []);
 
   const recentIdLookup = useMemo(() => {
     if (recentIds.length === 0) return null;
@@ -481,8 +468,11 @@ export function FoodPickerDialog({
   const handleSaveGlobal = async (food: Food) => {
     if (savingGlobalId) return;
     setSavingGlobalId(food.id);
+    setActionError(null);
     try {
       await addExistingToLibrary(food.id);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not save food");
     } finally {
       setSavingGlobalId(null);
     }
@@ -502,12 +492,9 @@ export function FoodPickerDialog({
     if (!selectedFood) return [];
     return parseAllServingSizes(selectedFood.serving_size, selectedFood.serving_size_grams);
   }, [selectedFood]);
-  const canUseCustomUnit = parsedServings.length > 0;
-  const hasMultipleUnits = parsedServings.length > 1;
   // Get the currently selected unit (clamped to valid index)
   const currentUnitIndex = Math.min(selectedUnitIndex, Math.max(0, parsedServings.length - 1));
   const parsedServing = parsedServings[currentUnitIndex] || null;
-  const customUnitName = parsedServing ? getUnitDisplayName(parsedServing.unit) : "";
   const customUnitLabel = parsedServing ? getUnitShortLabel(parsedServing.unit) : "";
 
   // Calculate the effective servings multiplier
@@ -544,12 +531,13 @@ export function FoodPickerDialog({
   const handleConfirm = async () => {
     if (!selectedFood || isSaving) return;
 
+    setIsSaving(true);
+    setActionError(null);
     let foodToAdd: Food;
 
     // If it's a scanned food, save to cache and add to user's library
-    if (isScannedFood(selectedFood)) {
-      setIsSaving(true);
-      try {
+    try {
+      if (isScannedFood(selectedFood)) {
         // Save to global cache AND user's library
         foodToAdd = await addToLibrary({
           name: selectedFood.name,
@@ -587,28 +575,27 @@ export function FoodPickerDialog({
           supersedes_food_id: null,
           source_category: null,
           variant_label: null,
-          embedding: null,
         });
-      } catch (err) {
-        console.error("Failed to save food:", err);
-        setIsSaving(false);
-        return;
+      } else {
+        foodToAdd = selectedFood;
       }
+
+      await onSelectFood(foodToAdd, multiplier);
+
+      // Track only a successfully logged food as recently used.
+      addRecentFoodId(foodToAdd.id);
+      setRecentIds(getRecentFoodIds());
+      onOpenChange(false);
+      setSearchQuery("");
+      setSelectedFood(null);
+      setAmount(1);
+      setUnit("serving");
+    } catch (error) {
+      console.error("Failed to add food", error);
+      setActionError(error instanceof Error ? error.message : "Could not add food");
+    } finally {
       setIsSaving(false);
-    } else {
-      foodToAdd = selectedFood;
     }
-
-    // Track this food as recently used
-    addRecentFoodId(foodToAdd.id);
-    setRecentIds(getRecentFoodIds());
-
-    onSelectFood(foodToAdd, multiplier);
-    onOpenChange(false);
-    setSearchQuery("");
-    setSelectedFood(null);
-    setAmount(1);
-    setUnit("serving");
   };
 
   const handleClose = (open: boolean) => {
@@ -624,11 +611,19 @@ export function FoodPickerDialog({
     onOpenChange(open);
   };
 
-  const handleSelectSavedMeal = (preset: SavedMealPresetWithItems) => {
+  const handleSelectSavedMeal = async (preset: SavedMealPresetWithItems) => {
     if (onSelectSavedMeal) {
-      onSelectSavedMeal(preset);
-      onOpenChange(false);
-      setActiveTab("foods");
+      setIsSaving(true);
+      setActionError(null);
+      try {
+        await onSelectSavedMeal(preset);
+        onOpenChange(false);
+        setActiveTab("foods");
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : "Could not add saved meal");
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -637,26 +632,7 @@ export function FoodPickerDialog({
     items: Array<{ foodId: string; servings: number }>,
     presetId?: string
   ) => {
-    if (presetId) {
-      // Update existing preset - need to update name and sync items
-      await updatePreset(presetId, name);
-      // For simplicity, delete all items and re-add (could optimize later)
-      const existingPreset = presets.find((p) => p.id === presetId);
-      if (existingPreset) {
-        for (const item of existingPreset.items) {
-          await removeItemFromPreset(item.id);
-        }
-      }
-      for (const item of items) {
-        await addItemToPreset(presetId, item.foodId, item.servings);
-      }
-    } else {
-      // Create new preset
-      const newPreset = await createPreset(name);
-      for (const item of items) {
-        await addItemToPreset(newPreset.id, item.foodId, item.servings);
-      }
-    }
+    await savePreset(name, items, presetId);
     setCreatePresetOpen(false);
     setEditingPreset(null);
   };
@@ -687,6 +663,12 @@ export function FoodPickerDialog({
             )}
           </DialogTitle>
         </DialogHeader>
+
+        {actionError && (
+          <p role="alert" className="mx-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive sm:mx-6">
+            {actionError}
+          </p>
+        )}
 
         {selectedFood ? (
           // Amount selection step
@@ -1037,15 +1019,17 @@ export function FoodPickerDialog({
         )}
       </DialogContent>
 
-      <BarcodeScanner
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onFoodFound={handleScannedFood}
-      />
+      {scannerOpen && (
+        <BarcodeScanner
+          open
+          onClose={() => setScannerOpen(false)}
+          onFoodFound={handleScannedFood}
+        />
+      )}
 
-      {mode === "default" && (
+      {mode === "default" && createPresetOpen && (
         <CreatePresetDialog
-          open={createPresetOpen}
+          open
           onOpenChange={setCreatePresetOpen}
           editingPreset={editingPreset}
           onSave={handleSavePreset}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Plus, Minus, X, Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FoodPickerDialog } from "@/components/food/food-picker-dialog";
-import type { Food, SavedMealPreset } from "@/lib/supabase/types";
+import type { Food } from "@/lib/supabase/types";
 import type { SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
 
 interface PresetItem {
@@ -38,29 +38,18 @@ export function CreatePresetDialog({
   editingPreset,
   onSave,
 }: CreatePresetDialogProps) {
-  const [name, setName] = useState("");
-  const [items, setItems] = useState<PresetItem[]>([]);
+  const [name, setName] = useState(() => editingPreset?.name ?? "");
+  const [items, setItems] = useState<PresetItem[]>(() =>
+    editingPreset
+      ? editingPreset.items.map((item) => ({
+          id: item.id,
+          food: item.food,
+          servings: item.servings,
+        }))
+      : []
+  );
   const [isFoodPickerOpen, setIsFoodPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Reset state when dialog opens/closes or editing preset changes
-  useEffect(() => {
-    if (open) {
-      if (editingPreset) {
-        setName(editingPreset.name);
-        setItems(
-          editingPreset.items.map((item) => ({
-            id: item.id,
-            food: item.food,
-            servings: item.servings,
-          }))
-        );
-      } else {
-        setName("");
-        setItems([]);
-      }
-    }
-  }, [open, editingPreset]);
 
   const handleAddFood = (food: Food, servings: number) => {
     // Check if food already exists
@@ -283,13 +272,15 @@ export function CreatePresetDialog({
       </Dialog>
 
       {/* Nested food picker for adding foods to preset */}
-      <FoodPickerDialog
-        open={isFoodPickerOpen}
-        onOpenChange={setIsFoodPickerOpen}
-        mealTitle="Saved Meal"
-        onSelectFood={handleAddFood}
-        mode="food-only"
-      />
+      {isFoodPickerOpen && (
+        <FoodPickerDialog
+          open
+          onOpenChange={setIsFoodPickerOpen}
+          mealTitle="Saved Meal"
+          onSelectFood={handleAddFood}
+          mode="food-only"
+        />
+      )}
     </>
   );
 }

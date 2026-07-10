@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -76,7 +76,6 @@ const initialFormData: FoodInsert = {
   fdc_id: null,
   barcode: null,
   source: "manual",
-  embedding: null,
 };
 
 function foodToFormData(food: Food): FoodInsert {
@@ -105,7 +104,6 @@ function foodToFormData(food: Food): FoodInsert {
     fdc_id: food.fdc_id,
     barcode: food.barcode,
     source: food.source,
-    embedding: food.embedding,
   };
 }
 
@@ -116,14 +114,6 @@ export function AddFoodForm({ editingFood, onSubmit }: AddFoodFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isEditing = !!editingFood;
-
-  useEffect(() => {
-    if (editingFood) {
-      setFormData(foodToFormData(editingFood));
-    } else {
-      setFormData(initialFormData);
-    }
-  }, [editingFood]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

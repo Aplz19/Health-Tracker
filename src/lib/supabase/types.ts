@@ -39,8 +39,9 @@ export interface Food {
   is_active: boolean;
   verified_at: string | null;
   supersedes_food_id: string | null;
-  // Vector search
-  embedding: number[] | null;   // OpenAI embedding for semantic search (1536 dimensions)
+  // Embeddings intentionally are not part of the browser-facing Food type.
+  // They remain server/database-only because a single vector contains 1,536
+  // numbers and is never needed to render or log a food.
   created_at: string;
   updated_at: string;
 }

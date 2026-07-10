@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import {
   Dialog,
@@ -15,7 +14,6 @@ interface AIFoodDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mealTitle: string;
-  userId: string;
   onSelectFood: (food: Food, servings: number) => void;
 }
 
@@ -64,19 +62,13 @@ export function AIFoodDialog({
   open,
   onOpenChange,
   mealTitle,
-  userId,
   onSelectFood,
 }: AIFoodDialogProps) {
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  const handleFoodSelected = async (
+  const handleFoodSelected = (
     foodMatch: FoodMatch,
     amount: number,
     unit: string,
-    mealType?: string
   ) => {
-    setIsProcessing(true);
-
     try {
       // Calculate servings based on amount and unit
       const servings = calculateServings(foodMatch, amount, unit);
@@ -120,7 +112,6 @@ export function AIFoodDialog({
         is_active: true,
         verified_at: null,
         supersedes_food_id: null,
-        embedding: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -129,8 +120,6 @@ export function AIFoodDialog({
       // Don't close dialog - let user continue with more foods or close manually
     } catch (error) {
       console.error('Error processing food selection:', error);
-    } finally {
-      setIsProcessing(false);
     }
   };
 
@@ -145,9 +134,7 @@ export function AIFoodDialog({
         </DialogHeader>
 
         <AIFoodLogger
-          userId={userId}
           onFoodSelected={handleFoodSelected}
-          onClose={() => onOpenChange(false)}
         />
 
         <p className="text-xs text-muted-foreground text-center">

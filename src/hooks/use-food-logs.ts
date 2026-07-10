@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { Food, FoodLog } from "@/lib/supabase/types";
+import { FOOD_CLIENT_COLUMNS, normalizeFood } from "@/lib/food/client-food";
 
 export interface FoodLogWithFood extends FoodLog {
   food: Food;
@@ -41,14 +42,17 @@ export function useFoodLogs(date: string) {
         .from("food_logs")
         .select(`
           *,
-          food:foods (*)
+          food:foods (${FOOD_CLIENT_COLUMNS})
         `)
         .eq("date", date)
         .eq("user_id", user.id)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      setLogs((data as FoodLogWithFood[]) || []);
+      const rows = (data || []) as unknown as Array<FoodLog & {
+        food: Parameters<typeof normalizeFood>[0];
+      }>;
+      setLogs(rows.map((row) => ({ ...row, food: normalizeFood(row.food) })));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch food logs");
     } finally {
@@ -74,12 +78,16 @@ export function useFoodLogs(date: string) {
         })
         .select(`
           *,
-          food:foods (*)
+          food:foods (${FOOD_CLIENT_COLUMNS})
         `)
         .single();
 
       if (error) throw error;
-      setLogs((prev) => [...prev, data as FoodLogWithFood]);
+      const row = data as unknown as FoodLog & {
+        food: Parameters<typeof normalizeFood>[0];
+      };
+      const normalized = { ...row, food: normalizeFood(row.food) };
+      setLogs((prev) => [...prev, normalized]);
       return data;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to add food log";

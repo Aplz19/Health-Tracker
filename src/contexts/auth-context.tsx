@@ -43,8 +43,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    let activeUserId: string | null = null;
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      activeUserId = session?.user.id ?? null;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -58,6 +61,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
+        const nextUserId = session?.user.id ?? null;
+        if (nextUserId !== activeUserId) {
+          clearClientCache();
+          activeUserId = nextUserId;
+        }
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {

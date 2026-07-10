@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -30,16 +30,6 @@ export function NutritionSettingsSheet({
   const [proteinStr, setProteinStr] = useState(goals.proteinPercent.toString());
   const [carbsStr, setCarbsStr] = useState(goals.carbsPercent.toString());
   const [fatStr, setFatStr] = useState(goals.fatPercent.toString());
-
-  // Reset form when sheet opens
-  useEffect(() => {
-    if (open) {
-      setCaloriesStr(goals.calories.toString());
-      setProteinStr(goals.proteinPercent.toString());
-      setCarbsStr(goals.carbsPercent.toString());
-      setFatStr(goals.fatPercent.toString());
-    }
-  }, [open, goals]);
 
   const calories = parseInt(caloriesStr) || 0;
   const proteinPercent = parseInt(proteinStr) || 0;

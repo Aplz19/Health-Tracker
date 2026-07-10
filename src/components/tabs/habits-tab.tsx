@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState } from "react";
 import { useDate } from "@/contexts/date-context";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
@@ -98,10 +98,6 @@ function ManualHabitRow({
 }) {
   const [value, setValue] = useState(amount.toString());
 
-  useEffect(() => {
-    setValue(amount.toString());
-  }, [amount]);
-
   const handleBlur = () => {
     const numValue = parseFloat(value) || 0;
     if (numValue !== amount) {
@@ -176,6 +172,7 @@ function HabitRow({
 
   return (
     <ManualHabitRow
+      key={`${habit.definition.key}:${amount}`}
       habit={habit}
       amount={amount}
       onUpdate={onUpdate}
@@ -189,12 +186,9 @@ export function HabitsTab() {
 
   const { getEnabledHabits, isLoading: isPrefsLoading } = useHabitPreferencesContext();
   const enabledHabits = getEnabledHabits();
-  // Stabilize the keys array by joining to string - prevents unnecessary re-renders
-  const enabledHabitKeysStr = enabledHabits.map((h) => h.definition.key).join(",");
-  const enabledHabitKeys = useMemo(
-    () => enabledHabitKeysStr ? enabledHabitKeysStr.split(",") : [],
-    [enabledHabitKeysStr]
-  );
+  // useHabitLogs compares the joined key string, so this derived array does
+  // not need manual memoization.
+  const enabledHabitKeys = enabledHabits.map((habit) => habit.definition.key);
 
   const {
     getLogForHabit,
@@ -238,6 +232,7 @@ export function HabitsTab() {
                 amount={amount}
                 onUpdate={(value) => updateHabitLog(habit.definition.key, value)}
                 onToggle={(checked) => {
+                  if (checked === Boolean(log?.completed)) return;
                   const goalAmount = habit.trackingMode === "checkbox" ? 1 : habit.goalAmount;
                   toggleHabit(habit.definition.key, goalAmount);
                 }}

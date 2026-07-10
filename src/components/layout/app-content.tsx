@@ -52,7 +52,7 @@ export function AppContent() {
   return (
     <div className="min-h-dvh bg-background">
       <Header />
-      <main className="container max-w-screen-md mx-auto">
+      <main className="container max-w-screen-md mx-auto pb-[env(safe-area-inset-bottom)]">
         <TabNavigation />
       </main>
       <FoodLibraryOverlay />

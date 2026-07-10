@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Activity, CheckCircle2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useWhoopStatus } from "@/hooks/use-whoop-status";
 
 interface WhoopStepProps {
   onNext: () => void;
@@ -12,7 +13,7 @@ interface WhoopStepProps {
 export function WhoopStep({ onNext, onSkip }: WhoopStepProps) {
   const [hasWhoop, setHasWhoop] = useState<boolean | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  const { isConnected, isLoading: isWhoopStatusLoading } = useWhoopStatus();
 
   const handleConnect = () => {
     setIsConnecting(true);
@@ -34,7 +35,7 @@ export function WhoopStep({ onNext, onSkip }: WhoopStepProps) {
       </div>
 
       {/* Whoop question */}
-      {hasWhoop === null && (
+      {!isWhoopStatusLoading && !isConnected && hasWhoop === null && (
         <div className="space-y-4">
           <p className="text-center font-medium">Do you have a Whoop band?</p>
           <div className="flex justify-center gap-4">
@@ -64,7 +65,7 @@ export function WhoopStep({ onNext, onSkip }: WhoopStepProps) {
       )}
 
       {/* Connect Whoop */}
-      {hasWhoop === true && !isConnected && (
+      {!isWhoopStatusLoading && hasWhoop === true && !isConnected && (
         <div className="space-y-6">
           <div className="bg-muted/50 rounded-lg p-6 space-y-4">
             <h3 className="font-semibold text-center">Connect your Whoop</h3>

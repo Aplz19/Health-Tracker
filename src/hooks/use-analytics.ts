@@ -3,6 +3,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getCached, hasCached, setCached } from "@/lib/client-cache";
+import type {
+  ExerciseSet,
+  Food,
+  TreadmillSession,
+  WhoopData,
+} from "@/lib/supabase/types";
 import { format, subDays, startOfDay } from "date-fns";
 
 export type TimeRange = "7d" | "30d" | "90d";
@@ -102,6 +108,45 @@ const EMPTY_ANALYTICS: AnalyticsData = {
   cardio: [],
 };
 
+type AnalyticsFood = Pick<
+  Food,
+  | "calories"
+  | "protein"
+  | "total_carbohydrates"
+  | "total_fat"
+  | "saturated_fat"
+  | "trans_fat"
+  | "polyunsaturated_fat"
+  | "monounsaturated_fat"
+  | "sodium"
+  | "fiber"
+  | "sugar"
+  | "added_sugar"
+  | "vitamin_a"
+  | "vitamin_c"
+  | "vitamin_d"
+  | "calcium"
+  | "iron"
+>;
+
+interface AnalyticsFoodLog {
+  date: string;
+  servings: number;
+  food: AnalyticsFood | null;
+}
+
+interface AnalyticsCreatineLog {
+  date: string;
+  amount: number;
+}
+
+interface AnalyticsExerciseLog {
+  date: string;
+  exercise_sets: Array<Pick<ExerciseSet, "reps" | "weight" | "is_warmup">> | null;
+}
+
+type AnalyticsCardioLog = Pick<TreadmillSession, "date" | "duration_minutes">;
+
 export function useAnalytics(range: TimeRange = "7d") {
   const cacheKey = `analytics:${range}`;
   const [data, setData] = useState<AnalyticsData>(
@@ -116,10 +161,16 @@ export function useAnalytics(range: TimeRange = "7d") {
     const endDate = format(new Date(), "yyyy-MM-dd");
 
     try {
-      // Fetch nutrition data (food logs aggregated by date)
-      const { data: foodLogs } = await supabase
-        .from("food_logs")
-        .select(`
+      // These datasets are independent; fetching them together cuts analytics
+      // startup from five network round trips in series to one parallel round.
+      const [
+        { data: foodLogs },
+        { data: whoopData },
+        { data: creatineData },
+        { data: exerciseLogs },
+        { data: cardioLogs },
+      ] = await Promise.all([
+        supabase.from("food_logs").select(`
           date,
           servings,
           food:foods (
@@ -141,13 +192,44 @@ export function useAnalytics(range: TimeRange = "7d") {
             calcium,
             iron
           )
-        `)
-        .gte("date", startDate)
-        .lte("date", endDate);
+        `).gte("date", startDate).lte("date", endDate),
+        supabase
+          .from("whoop_data")
+          .select(
+            "date, recovery_score, hrv_rmssd, resting_heart_rate, sleep_score, sleep_duration_minutes, strain_score, spo2_percentage, skin_temp_celsius, kilojoules, avg_heart_rate, max_heart_rate"
+          )
+          .gte("date", startDate)
+          .lte("date", endDate)
+          .order("date", { ascending: true }),
+        supabase
+          .from("creatine_logs")
+          .select("date, amount")
+          .gte("date", startDate)
+          .lte("date", endDate)
+          .order("date", { ascending: true }),
+        supabase
+          .from("exercise_logs")
+          .select(`
+            id,
+            date,
+            exercise_sets (
+              reps,
+              weight,
+              is_warmup
+            )
+          `)
+          .gte("date", startDate)
+          .lte("date", endDate),
+        supabase
+          .from("treadmill_sessions")
+          .select("date, duration_minutes")
+          .gte("date", startDate)
+          .lte("date", endDate),
+      ]);
 
       // Aggregate nutrition by date
       const nutritionByDate: Record<string, DailyNutrition> = {};
-      foodLogs?.forEach((log: any) => {
+      (foodLogs as AnalyticsFoodLog[] | null)?.forEach((log) => {
         const date = log.date;
         if (!nutritionByDate[date]) {
           nutritionByDate[date] = {
@@ -173,6 +255,7 @@ export function useAnalytics(range: TimeRange = "7d") {
         }
         const multiplier = log.servings;
         const f = log.food;
+        if (!f) return;
         nutritionByDate[date].calories += (f.calories || 0) * multiplier;
         nutritionByDate[date].protein += (f.protein || 0) * multiplier;
         nutritionByDate[date].carbs += (f.total_carbohydrates || 0) * multiplier;
@@ -192,15 +275,7 @@ export function useAnalytics(range: TimeRange = "7d") {
         nutritionByDate[date].iron += (f.iron || 0) * multiplier;
       });
 
-      // Fetch Whoop data
-      const { data: whoopData } = await supabase
-        .from("whoop_data")
-        .select("*")
-        .gte("date", startDate)
-        .lte("date", endDate)
-        .order("date", { ascending: true });
-
-      const whoop: DailyWhoop[] = whoopData?.map((d: any) => ({
+      const whoop: DailyWhoop[] = (whoopData as WhoopData[] | null)?.map((d) => ({
         date: d.date,
         recovery: d.recovery_score,
         hrv: d.hrv_rmssd,
@@ -215,43 +290,20 @@ export function useAnalytics(range: TimeRange = "7d") {
         maxHeartRate: d.max_heart_rate,
       })) || [];
 
-      // Fetch creatine data
-      const { data: creatineData } = await supabase
-        .from("creatine_logs")
-        .select("*")
-        .gte("date", startDate)
-        .lte("date", endDate)
-        .order("date", { ascending: true });
-
-      const creatine: DailyCreatine[] = creatineData?.map((d: any) => ({
+      const creatine: DailyCreatine[] = (creatineData as AnalyticsCreatineLog[] | null)?.map((d) => ({
         date: d.date,
         amount: d.amount,
       })) || [];
 
-      // Fetch exercise data
-      const { data: exerciseLogs } = await supabase
-        .from("exercise_logs")
-        .select(`
-          id,
-          date,
-          exercise_sets (
-            reps,
-            weight,
-            is_warmup
-          )
-        `)
-        .gte("date", startDate)
-        .lte("date", endDate);
-
       // Aggregate exercise by date
       const exerciseByDate: Record<string, DailyExercise> = {};
-      exerciseLogs?.forEach((log: any) => {
+      (exerciseLogs as AnalyticsExerciseLog[] | null)?.forEach((log) => {
         const date = log.date;
         if (!exerciseByDate[date]) {
           exerciseByDate[date] = { date, workouts: 0, totalSets: 0, totalVolume: 0 };
         }
         exerciseByDate[date].workouts += 1;
-        log.exercise_sets?.forEach((set: any) => {
+        log.exercise_sets?.forEach((set) => {
           if (!set.is_warmup) {
             exerciseByDate[date].totalSets += 1;
             exerciseByDate[date].totalVolume += (set.reps || 0) * (set.weight || 0);
@@ -259,16 +311,9 @@ export function useAnalytics(range: TimeRange = "7d") {
         });
       });
 
-      // Fetch cardio data (treadmill sessions)
-      const { data: cardioLogs } = await supabase
-        .from("treadmill_sessions")
-        .select("date, duration_minutes")
-        .gte("date", startDate)
-        .lte("date", endDate);
-
       // Aggregate cardio by date
       const cardioByDate: Record<string, DailyCardio> = {};
-      cardioLogs?.forEach((log: any) => {
+      (cardioLogs as AnalyticsCardioLog[] | null)?.forEach((log) => {
         const date = log.date;
         if (!cardioByDate[date]) {
           cardioByDate[date] = { date, sessions: 0, totalMinutes: 0 };

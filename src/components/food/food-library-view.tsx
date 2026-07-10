@@ -50,11 +50,8 @@ export function FoodLibraryView({
   const {
     presets,
     isLoading: isLoadingPresets,
-    createPreset,
-    updatePreset,
+    savePreset,
     deletePreset,
-    addItemToPreset,
-    removeItemFromPreset,
   } = useSavedMealPresets();
 
   const handleFoodFound = async (food: TransformedOFFFood) => {
@@ -73,23 +70,7 @@ export function FoodLibraryView({
     items: Array<{ foodId: string; servings: number }>,
     presetId?: string
   ) => {
-    if (presetId) {
-      await updatePreset(presetId, name);
-      const existingPreset = presets.find((p) => p.id === presetId);
-      if (existingPreset) {
-        for (const item of existingPreset.items) {
-          await removeItemFromPreset(item.id);
-        }
-      }
-      for (const item of items) {
-        await addItemToPreset(presetId, item.foodId, item.servings);
-      }
-    } else {
-      const newPreset = await createPreset(name);
-      for (const item of items) {
-        await addItemToPreset(newPreset.id, item.foodId, item.servings);
-      }
-    }
+    await savePreset(name, items, presetId);
     setCreatePresetOpen(false);
     setEditingPreset(null);
   };
@@ -182,7 +163,7 @@ export function FoodLibraryView({
             {/* No results in library */}
             {!isLoading && foods.length === 0 && searchQuery && (
               <div className="p-8 text-center text-sm text-muted-foreground">
-                <p>No foods found for "{searchQuery}"</p>
+                <p>No foods found for &ldquo;{searchQuery}&rdquo;</p>
                 <p className="mt-1">Try a different search or scan a barcode.</p>
               </div>
             )}
@@ -288,18 +269,22 @@ export function FoodLibraryView({
         </TabsContent>
       </Tabs>
 
-      <BarcodeScanner
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onFoodFound={handleFoodFound}
-      />
+      {scannerOpen && (
+        <BarcodeScanner
+          open
+          onClose={() => setScannerOpen(false)}
+          onFoodFound={handleFoodFound}
+        />
+      )}
 
-      <CreatePresetDialog
-        open={createPresetOpen}
-        onOpenChange={setCreatePresetOpen}
-        editingPreset={editingPreset}
-        onSave={handleSavePreset}
-      />
+      {createPresetOpen && (
+        <CreatePresetDialog
+          open
+          onOpenChange={setCreatePresetOpen}
+          editingPreset={editingPreset}
+          onSave={handleSavePreset}
+        />
+      )}
     </div>
   );
 }

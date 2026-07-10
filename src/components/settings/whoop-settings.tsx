@@ -26,6 +26,12 @@ const SYNC_OPTIONS = [
   { value: "730", label: "2 Years", days: 730 },
 ];
 
+async function fetchWhoopStatus(): Promise<WhoopStatus> {
+  const response = await fetch("/api/whoop/status");
+  if (!response.ok) throw new Error("Failed to check Whoop status");
+  return response.json() as Promise<WhoopStatus>;
+}
+
 export function WhoopSettings() {
   const [status, setStatus] = useState<WhoopStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,9 +44,7 @@ export function WhoopSettings() {
   const checkStatus = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/whoop/status");
-      const data = await res.json();
-      setStatus(data);
+      setStatus(await fetchWhoopStatus());
     } catch {
       setStatus({ connected: false, error: "Failed to check status" });
     } finally {
@@ -49,7 +53,24 @@ export function WhoopSettings() {
   };
 
   useEffect(() => {
-    checkStatus();
+    let cancelled = false;
+
+    void fetchWhoopStatus()
+      .then((nextStatus) => {
+        if (!cancelled) setStatus(nextStatus);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatus({ connected: false, error: "Failed to check status" });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleConnect = () => {

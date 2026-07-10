@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -184,15 +184,6 @@ export function EditFoodLogDialog({
     // Round to reasonable precision
     return Math.round(amountInUnit * 100) / 100;
   };
-
-  // Reset state when dialog opens with new food/servings
-  useEffect(() => {
-    if (open) {
-      setUnit("serving");
-      setAmount(currentServings);
-      setSelectedUnitIndex(0);
-    }
-  }, [open, currentServings]);
 
   // Calculate the effective servings multiplier
   const getServingsMultiplier = (): number => {

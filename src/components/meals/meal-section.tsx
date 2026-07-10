@@ -1,17 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import { Plus, X, Trash2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FoodPickerDialog } from "@/components/food/food-picker-dialog";
 import { EditFoodLogDialog } from "@/components/meals/edit-food-log-dialog";
 import { MealTimePicker } from "@/components/meals/meal-time-picker";
-import { AIFoodDialog } from "@/components/ai/ai-food-dialog";
-import { useAuth } from "@/contexts/auth-context";
 import type { Food, Meal } from "@/lib/supabase/types";
 import type { FoodLogWithFood } from "@/hooks/use-food-logs";
 import type { SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
+
+const FoodPickerDialog = dynamic(
+  () => import("@/components/food/food-picker-dialog").then((m) => m.FoodPickerDialog)
+);
+const AIFoodDialog = dynamic(
+  () => import("@/components/ai/ai-food-dialog").then((m) => m.AIFoodDialog)
+);
 
 interface MealSectionProps {
   meal: Meal;
@@ -37,40 +42,23 @@ export function MealSection({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isAIDialogOpen, setIsAIDialogOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
-  const [nameValue, setNameValue] = useState(meal.name);
   const [editingLog, setEditingLog] = useState<FoodLogWithFood | null>(null);
-  const { user } = useAuth();
-
-  // Sync name with meal
-  useEffect(() => {
-    setNameValue(meal.name);
-  }, [meal.name]);
 
   const addFoodToMeal = async (food: Food, servings: number) => {
-    try {
-      await onAddLog(food.id, servings);
-    } catch {
-      // Error handled by hook
-    }
+    await onAddLog(food.id, servings);
   };
 
   const addSavedMealToMeal = async (preset: SavedMealPresetWithItems) => {
-    try {
-      // Add all foods from the saved meal preset
-      for (const item of preset.items) {
-        await onAddLog(item.food_id, item.servings);
-      }
-    } catch {
-      // Error handled by hook
-    }
+    await Promise.all(
+      preset.items.map((item) => onAddLog(item.food_id, item.servings))
+    );
   };
 
-  const handleNameBlur = () => {
+  const handleNameBlur = (event: React.FocusEvent<HTMLInputElement>) => {
     setIsEditingName(false);
-    if (nameValue.trim() && nameValue !== meal.name) {
-      onUpdateMeal({ name: nameValue.trim() });
-    } else {
-      setNameValue(meal.name);
+    const nextName = event.currentTarget.value.trim();
+    if (nextName && nextName !== meal.name) {
+      onUpdateMeal({ name: nextName });
     }
   };
 
@@ -78,7 +66,6 @@ export function MealSection({
     if (e.key === "Enter") {
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
-      setNameValue(meal.name);
       setIsEditingName(false);
     }
   };
@@ -113,8 +100,7 @@ export function MealSection({
           {isEditingName ? (
             <Input
               type="text"
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
+              defaultValue={meal.name}
               onBlur={handleNameBlur}
               onKeyDown={handleNameKeyDown}
               className="h-7 w-32 text-sm font-medium"
@@ -131,6 +117,7 @@ export function MealSection({
 
           {/* Time Picker */}
           <MealTimePicker
+            key={`${meal.time_hour}:${meal.time_minute}:${meal.is_pm}`}
             hour={meal.time_hour}
             minute={meal.time_minute}
             isPm={meal.is_pm}
@@ -235,21 +222,22 @@ export function MealSection({
       </div>
 
       {/* Food Picker Dialog */}
-      <FoodPickerDialog
-        open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
-        mealTitle={meal.name}
-        onSelectFood={addFoodToMeal}
-        onSelectSavedMeal={addSavedMealToMeal}
-      />
+      {isDialogOpen && (
+        <FoodPickerDialog
+          open
+          onOpenChange={setIsDialogOpen}
+          mealTitle={meal.name}
+          onSelectFood={addFoodToMeal}
+          onSelectSavedMeal={addSavedMealToMeal}
+        />
+      )}
 
       {/* AI Food Dialog */}
-      {user && (
+      {isAIDialogOpen && (
         <AIFoodDialog
-          open={isAIDialogOpen}
+          open
           onOpenChange={setIsAIDialogOpen}
           mealTitle={meal.name}
-          userId={user.id}
           onSelectFood={addFoodToMeal}
         />
       )}
@@ -257,6 +245,7 @@ export function MealSection({
       {/* Edit Food Log Dialog */}
       {editingLog && (
         <EditFoodLogDialog
+          key={editingLog.id}
           open={!!editingLog}
           onOpenChange={(open) => {
             if (!open) setEditingLog(null);

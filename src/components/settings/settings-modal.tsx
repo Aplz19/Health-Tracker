@@ -24,7 +24,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[700px] w-[95vw] max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent fullscreenOnMobile className="overflow-hidden sm:max-h-[90dvh] sm:max-w-[700px] sm:w-[95vw] flex flex-col">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>

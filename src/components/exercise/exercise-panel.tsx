@@ -257,6 +257,7 @@ export function ExercisePanel() {
 
           {/* Form */}
           <AddExerciseForm
+            key={editingExercise?.id ?? `new:${selectedCategory ?? "uncategorized"}`}
             editingExercise={editingExercise}
             defaultCategory={selectedCategory || undefined}
             onSubmit={handleFormSubmit}

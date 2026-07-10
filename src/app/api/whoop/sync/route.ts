@@ -43,8 +43,15 @@ function msToMinutes(ms: number): number {
 // Get the date string from an ISO timestamp (in local timezone based on offset)
 function getDateFromTimestamp(timestamp: string, offset?: string): string {
   const date = new Date(timestamp);
-  // Simple extraction - just use the date portion
-  return date.toISOString().split("T")[0];
+  const match = offset?.match(/^([+-])(\d{2}):(\d{2})$/);
+  if (!match) return date.toISOString().split("T")[0];
+
+  const [, sign, hours, minutes] = match;
+  const direction = sign === "+" ? 1 : -1;
+  const offsetMinutes = direction * (Number(hours) * 60 + Number(minutes));
+  return new Date(date.getTime() + offsetMinutes * 60_000)
+    .toISOString()
+    .split("T")[0];
 }
 
 export async function POST(request: NextRequest) {
@@ -114,7 +121,7 @@ export async function POST(request: NextRequest) {
     for (const cycle of cycles) {
       if (!cycle.start) continue;
 
-      const cycleDate = getDateFromTimestamp(cycle.start);
+      const cycleDate = getDateFromTimestamp(cycle.start, cycle.timezone_offset);
       const recovery = recoveryByCycle.get(cycle.id);
       const sleep = sleepByCycle.get(cycle.id);
 

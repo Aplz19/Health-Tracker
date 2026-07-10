@@ -1,131 +1,275 @@
 /**
- * One-time migration script to generate embeddings for existing foods
+ * Paginated, restart-safe embedding backfill for active foods.
  *
  * Prerequisites:
- * 1. Run sql/add_vector_search.sql in Supabase SQL editor
- * 2. Set OPENAI_API_KEY in .env.local
- * 3. Run: npx tsx scripts/generate-food-embeddings.ts
+ * 1. Apply sql/add_food_search_v2.sql in Supabase.
+ * 2. Set NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and
+ *    OPENAI_API_KEY in .env.local.
+ * 3. Run: npm run generate-embeddings
+ *
+ * Optional environment tuning:
+ * FOOD_EMBEDDING_PAGE_SIZE=500
+ * FOOD_EMBEDDING_BATCH_SIZE=64
+ * FOOD_EMBEDDING_UPDATE_CONCURRENCY=10
  */
 
-import { createClient } from '@supabase/supabase-js';
-import { config } from 'dotenv';
+import { createHash } from "node:crypto";
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+import {
+  FOOD_EMBEDDING_MODEL,
+  generateEmbeddings,
+} from "../src/lib/embeddings/openai";
+import {
+  createFoodEmbeddingInput,
+  type EmbeddableFood,
+} from "../src/lib/food/embedding-input";
 
-// Load environment variables
-config({ path: '.env.local' });
+config({ path: ".env.local" });
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Need service key for admin access
-const openaiApiKey = process.env.OPENAI_API_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const openaiApiKey = process.env.OPENAI_API_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
-  console.error('Missing required environment variables:');
-  console.error('- NEXT_PUBLIC_SUPABASE_URL');
-  console.error('- SUPABASE_SERVICE_ROLE_KEY');
-  console.error('- OPENAI_API_KEY');
+  console.error("Missing required environment variables:");
+  console.error("- NEXT_PUBLIC_SUPABASE_URL");
+  console.error("- SUPABASE_SERVICE_ROLE_KEY");
+  console.error("- OPENAI_API_KEY");
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
-interface Food {
+const PAGE_SIZE = readPositiveInteger("FOOD_EMBEDDING_PAGE_SIZE", 500, 1_000);
+const EMBEDDING_BATCH_SIZE = readPositiveInteger(
+  "FOOD_EMBEDDING_BATCH_SIZE",
+  64,
+  256
+);
+const UPDATE_CONCURRENCY = readPositiveInteger(
+  "FOOD_EMBEDDING_UPDATE_CONCURRENCY",
+  10,
+  50
+);
+const MAX_ATTEMPTS = 5;
+
+interface FoodRow extends EmbeddableFood {
   id: string;
-  name: string;
-  brand: string | null;
-  serving_size: string;
+  updated_at: string;
+  embedding_model: string | null;
+  embedding_input_hash: string | null;
+  embedding_updated_at: string | null;
 }
 
-async function generateEmbedding(text: string): Promise<number[]> {
-  const response = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${openaiApiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'text-embedding-3-small',
-      input: text,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI API error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.data[0].embedding;
+interface PreparedFood {
+  food: FoodRow;
+  input: string;
+  inputHash: string;
 }
 
-function createFoodSearchText(food: Food): string {
-  // Brand is structured but belongs in search text (for example, Taco Bell).
-  return [food.brand, food.name, food.serving_size].filter(Boolean).join(" ").toLowerCase();
+function readPositiveInteger(name: string, fallback: number, maximum: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, maximum);
 }
 
-async function main() {
-  console.log('Starting food embedding generation...\n');
+function hashEmbeddingInput(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
+}
 
-  // Fetch all foods without embeddings
-  const { data: foods, error: fetchError } = await supabase
-    .from('foods')
-    .select('id, name, brand, serving_size')
-    .is('embedding', null);
-
-  if (fetchError) {
-    console.error('Error fetching foods:', fetchError);
-    process.exit(1);
+function chunks<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
   }
+  return result;
+}
 
-  if (!foods || foods.length === 0) {
-    console.log('No foods found without embeddings. Migration complete!');
-    return;
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error && "message" in error) {
+    return String((error as { message: unknown }).message);
   }
+  return String(error);
+}
 
-  console.log(`Found ${foods.length} foods without embeddings\n`);
+async function sleep(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
-  let processed = 0;
-  let failed = 0;
-  const batchSize = 10;
+async function withRetry<T>(label: string, operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
 
-  for (let i = 0; i < foods.length; i += batchSize) {
-    const batch = foods.slice(i, i + batchSize);
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_ATTEMPTS) break;
 
-    console.log(`Processing batch ${Math.floor(i / batchSize) + 1} (${i + 1}-${Math.min(i + batchSize, foods.length)} of ${foods.length})...`);
-
-    await Promise.all(
-      batch.map(async (food) => {
-        try {
-          const searchText = createFoodSearchText(food);
-          const embedding = await generateEmbedding(searchText);
-
-          const { error: updateError } = await supabase
-            .from('foods')
-            .update({ embedding })
-            .eq('id', food.id);
-
-          if (updateError) {
-            console.error(`  ✗ Failed to update ${food.name}:`, updateError.message);
-            failed++;
-          } else {
-            console.log(`  ✓ ${food.name}`);
-            processed++;
-          }
-        } catch (error) {
-          console.error(`  ✗ Error processing ${food.name}:`, error);
-          failed++;
-        }
-      })
-    );
-
-    // Rate limiting: OpenAI has rate limits, so add a small delay between batches
-    if (i + batchSize < foods.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const exponentialDelay = 500 * 2 ** (attempt - 1);
+      const jitter = Math.floor(Math.random() * 250);
+      const delay = exponentialDelay + jitter;
+      console.warn(
+        `${label} failed (attempt ${attempt}/${MAX_ATTEMPTS}); retrying in ${delay}ms: ${errorMessage(error)}`
+      );
+      await sleep(delay);
     }
   }
 
-  console.log('\n' + '='.repeat(50));
-  console.log('Migration complete!');
-  console.log(`✓ Successfully processed: ${processed}`);
-  console.log(`✗ Failed: ${failed}`);
-  console.log('='.repeat(50));
+  throw lastError;
 }
 
-main().catch(console.error);
+async function fetchFoodPage(afterId: string | null): Promise<FoodRow[]> {
+  return withRetry("Supabase page fetch", async () => {
+    let query = supabase
+      .from("foods")
+      .select(
+        [
+          "id",
+          "name",
+          "brand",
+          "brand_slug",
+          "search_aliases",
+          "variant_label",
+          "source_category",
+          "serving_size",
+          "updated_at",
+          "embedding_model",
+          "embedding_input_hash",
+          "embedding_updated_at",
+        ].join(",")
+      )
+      .eq("is_active", true)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+
+    if (afterId) query = query.gt("id", afterId);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return (data || []) as unknown as FoodRow[];
+  });
+}
+
+async function updateEmbedding(
+  prepared: PreparedFood,
+  embedding: number[]
+): Promise<"updated" | "changed"> {
+  return withRetry(`Supabase update for ${prepared.food.id}`, async () => {
+    const { data, error } = await supabase
+      .from("foods")
+      .update({
+        embedding,
+        embedding_model: FOOD_EMBEDDING_MODEL,
+        embedding_input_hash: prepared.inputHash,
+        embedding_updated_at: new Date().toISOString(),
+      })
+      .eq("id", prepared.food.id)
+      .eq("is_active", true)
+      // Do not attach a vector generated from stale text if the food was edited
+      // after this page was read. A later run will pick up the changed hash.
+      .eq("updated_at", prepared.food.updated_at)
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return data ? "updated" : "changed";
+  });
+}
+
+async function main(): Promise<void> {
+  console.log("Starting food embedding backfill");
+  console.log(`Model: ${FOOD_EMBEDDING_MODEL}`);
+  console.log(
+    `Page size: ${PAGE_SIZE}; embedding batch: ${EMBEDDING_BATCH_SIZE}; update concurrency: ${UPDATE_CONCURRENCY}`
+  );
+
+  let cursor: string | null = null;
+  let scanned = 0;
+  let alreadyCurrent = 0;
+  let updated = 0;
+  let changedDuringRun = 0;
+  let failed = 0;
+  let pageNumber = 0;
+
+  while (true) {
+    const foods = await fetchFoodPage(cursor);
+    if (foods.length === 0) break;
+
+    pageNumber += 1;
+    scanned += foods.length;
+    cursor = foods[foods.length - 1].id;
+
+    const prepared = foods.map((food): PreparedFood => {
+      const input = createFoodEmbeddingInput(food);
+      return { food, input, inputHash: hashEmbeddingInput(input) };
+    });
+
+    const stale = prepared.filter(
+      ({ food, inputHash }) =>
+        food.embedding_model !== FOOD_EMBEDDING_MODEL ||
+        food.embedding_input_hash !== inputHash ||
+        !food.embedding_updated_at
+    );
+    alreadyCurrent += prepared.length - stale.length;
+
+    console.log(
+      `Page ${pageNumber}: ${foods.length} scanned, ${stale.length} require embeddings`
+    );
+
+    for (const embeddingBatch of chunks(stale, EMBEDDING_BATCH_SIZE)) {
+      let embeddings: number[][];
+      try {
+        embeddings = await withRetry("OpenAI embedding batch", () =>
+          generateEmbeddings(embeddingBatch.map((item) => item.input))
+        );
+      } catch (error) {
+        failed += embeddingBatch.length;
+        console.error(
+          `Embedding batch permanently failed (${embeddingBatch.length} foods): ${errorMessage(error)}`
+        );
+        continue;
+      }
+
+      const updatePairs = embeddingBatch.map((item, index) => ({
+        item,
+        embedding: embeddings[index],
+      }));
+
+      for (const updateBatch of chunks(updatePairs, UPDATE_CONCURRENCY)) {
+        await Promise.all(
+          updateBatch.map(async ({ item, embedding }) => {
+            try {
+              const outcome = await updateEmbedding(item, embedding);
+              if (outcome === "updated") updated += 1;
+              else changedDuringRun += 1;
+            } catch (error) {
+              failed += 1;
+              console.error(
+                `Update permanently failed for ${item.food.id} (${item.food.name}): ${errorMessage(error)}`
+              );
+            }
+          })
+        );
+      }
+    }
+  }
+
+  console.log("Embedding backfill complete");
+  console.log(`Scanned: ${scanned}`);
+  console.log(`Already current: ${alreadyCurrent}`);
+  console.log(`Updated: ${updated}`);
+  console.log(`Changed during run (deferred): ${changedDuringRun}`);
+  console.log(`Failed: ${failed}`);
+
+  if (failed > 0) process.exitCode = 1;
+}
+
+main().catch((error) => {
+  console.error(`Embedding backfill aborted: ${errorMessage(error)}`);
+  process.exitCode = 1;
+});

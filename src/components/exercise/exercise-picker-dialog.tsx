@@ -120,7 +120,7 @@ export function ExercisePickerDialog({
             <div className="p-3">
               {searchResults.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground py-8">
-                  No exercises found for "{searchQuery}"
+                  No exercises found for &ldquo;{searchQuery}&rdquo;
                 </p>
               ) : (
                 <div className="space-y-1">
