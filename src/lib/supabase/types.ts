@@ -1,3 +1,5 @@
+export type FoodSource = "manual" | "usda" | "openfoodfacts" | "restaurant_official";
+
 export interface Food {
   id: string;
   name: string;
@@ -20,17 +22,46 @@ export interface Food {
   vitamin_d: number | null;
   calcium: number | null;
   iron: number | null;
+  cholesterol: number | null;
+  // Search/display metadata
+  brand: string | null;
+  brand_slug: string | null;
+  search_aliases: string[];
+  source_category: string | null;
+  variant_label: string | null;
   // Source tracking
   fdc_id: number | null;        // USDA FoodData Central ID (legacy)
   barcode: string | null;       // Barcode for scanned foods
-  source: "manual" | "usda" | "openfoodfacts";  // Where this food came from
+  source: FoodSource;           // Where this food came from
+  source_external_id: string | null;
+  source_identity_key: string | null;
+  content_hash: string | null;
+  is_active: boolean;
+  verified_at: string | null;
+  supersedes_food_id: string | null;
   // Vector search
   embedding: number[] | null;   // OpenAI embedding for semantic search (1536 dimensions)
   created_at: string;
   updated_at: string;
 }
 
-export type FoodInsert = Omit<Food, "id" | "created_at" | "updated_at">;
+type FoodImportMetadata =
+  | "brand"
+  | "brand_slug"
+  | "search_aliases"
+  | "source_category"
+  | "variant_label"
+  | "cholesterol"
+  | "source_external_id"
+  | "source_identity_key"
+  | "content_hash"
+  | "is_active"
+  | "verified_at"
+  | "supersedes_food_id";
+
+export type FoodInsert =
+  Omit<Food, "id" | "created_at" | "updated_at" | FoodImportMetadata>
+  & Partial<Pick<Food, FoodImportMetadata>>;
 
 // User's personal food library (favorites)
 export interface UserFoodLibrary {

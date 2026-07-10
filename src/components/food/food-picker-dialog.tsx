@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, ArrowLeft, Database, Loader2, ScanBarcode, Plus, Pencil, Trash2 } from "lucide-react";
+import { Search, ArrowLeft, Database, Globe2, Loader2, ScanBarcode, Plus, Star, Pencil, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
+import { useGlobalFoodSearch } from "@/hooks/use-global-food-search";
 import { useSavedMealPresets, type SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
 import dynamic from "next/dynamic";
 import { CreatePresetDialog } from "@/components/meals/create-preset-dialog";
@@ -228,7 +229,166 @@ type SelectedFood = Food | TransformedOFFFood;
 
 // Type guard to check if food is from Open Food Facts
 function isScannedFood(food: SelectedFood): food is TransformedOFFFood {
-  return "source" in food && food.source === "openfoodfacts";
+  return !("id" in food) && food.source === "openfoodfacts";
+}
+
+function FoodResultCard({
+  food,
+  onSelect,
+  onSave,
+  isSaving = false,
+}: {
+  food: Food;
+  onSelect: (food: Food) => void;
+  onSave?: (food: Food) => void;
+  isSaving?: boolean;
+}) {
+  return (
+    <Card
+      className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+      onClick={() => onSelect(food)}
+    >
+      <div className="flex justify-between items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="font-medium leading-snug break-words line-clamp-2">{food.name}</p>
+          <p className="text-sm text-muted-foreground">
+            {[food.brand, food.variant_label, food.serving_size].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+        <div className="flex items-start gap-1 shrink-0">
+          <div className="text-right text-sm">
+            <p className="font-medium">{food.calories} cal</p>
+            <p className="text-xs text-muted-foreground">
+              {food.protein}P | {food.total_carbohydrates}C | {food.total_fat}F
+            </p>
+          </div>
+          {onSave && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-amber-500"
+              disabled={isSaving}
+              title="Save to your food library"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSave(food);
+              }}
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Star className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function FoodSearchResults({
+  libraryFoods,
+  globalFoods,
+  isLoadingLibrary,
+  isSearchingGlobal,
+  globalError,
+  searchQuery,
+  searchedGlobally,
+  savingGlobalId,
+  onSelect,
+  onSaveGlobal,
+}: {
+  libraryFoods: LibraryFood[];
+  globalFoods: Food[];
+  isLoadingLibrary: boolean;
+  isSearchingGlobal: boolean;
+  globalError: string | null;
+  searchQuery: string;
+  searchedGlobally: boolean;
+  savingGlobalId: string | null;
+  onSelect: (food: Food) => void;
+  onSaveGlobal: (food: Food) => void;
+}) {
+  const libraryIds = new Set(libraryFoods.map((food) => food.id));
+  const distinctGlobal = globalFoods.filter((food) => !libraryIds.has(food.id));
+
+  if (isLoadingLibrary && libraryFoods.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
+        <p className="text-sm text-muted-foreground">Loading your foods...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 pr-2">
+      {libraryFoods.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+            <Database className="h-3 w-3" />
+            <span>Your Library</span>
+          </div>
+          {libraryFoods.map((food) => (
+            <FoodResultCard key={food.id} food={food} onSelect={onSelect} />
+          ))}
+        </section>
+      )}
+
+      {isSearchingGlobal && (
+        <div className="flex items-center justify-center py-6">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
+          <p className="text-sm text-muted-foreground">Searching all foods...</p>
+        </div>
+      )}
+
+      {!isSearchingGlobal && searchedGlobally && (
+        <section className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+            <Globe2 className="h-3 w-3" />
+            <span>Global Foods</span>
+          </div>
+          {distinctGlobal.length > 0 ? (
+            distinctGlobal.map((food) => (
+              <FoodResultCard
+                key={food.id}
+                food={food}
+                onSelect={onSelect}
+                onSave={onSaveGlobal}
+                isSaving={savingGlobalId === food.id}
+              />
+            ))
+          ) : (
+            <p className="py-5 text-center text-sm text-muted-foreground">
+              No additional global foods found.
+            </p>
+          )}
+        </section>
+      )}
+
+      {globalError && (
+        <p className="py-4 text-center text-sm text-destructive">{globalError}</p>
+      )}
+
+      {!searchQuery && libraryFoods.length === 0 && !isSearchingGlobal && (
+        <div className="py-8 text-center">
+          <p className="text-sm text-muted-foreground">Your food library is empty.</p>
+          <p className="text-xs text-muted-foreground mt-1">Scan a barcode or type a search.</p>
+        </div>
+      )}
+
+      {searchQuery && libraryFoods.length === 0 && !searchedGlobally && !isSearchingGlobal && (
+        <div className="py-8 text-center">
+          <p className="text-sm text-muted-foreground">No match in your library.</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Press Enter or the globe button to search all foods.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function FoodPickerDialog({
@@ -247,6 +407,7 @@ export function FoodPickerDialog({
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [savingGlobalId, setSavingGlobalId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"foods" | "saved">("foods");
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [editingPreset, setEditingPreset] = useState<SavedMealPresetWithItems | null>(null);
@@ -256,7 +417,16 @@ export function FoodPickerDialog({
     foods: libraryFoods,
     isLoading: isLoadingLibrary,
     addToLibrary,
+    addExistingToLibrary,
   } = useUserFoodLibrary(searchQuery);
+  const {
+    foods: globalFoods,
+    searchedQuery,
+    isSearching: isSearchingGlobal,
+    error: globalError,
+    searchGlobal,
+    clearGlobal,
+  } = useGlobalFoodSearch();
 
   // Saved meal presets (only load if not in food-only mode)
   const {
@@ -297,6 +467,26 @@ export function FoodPickerDialog({
   }, [libraryFoods, recentIdLookup]);
 
   const isLoading = isLoadingLibrary;
+
+  const handleSearchQueryChange = (value: string) => {
+    setSearchQuery(value);
+    clearGlobal();
+  };
+
+  const handleGlobalSearch = async () => {
+    if (!searchQuery.trim() || isSearchingGlobal) return;
+    await searchGlobal(searchQuery);
+  };
+
+  const handleSaveGlobal = async (food: Food) => {
+    if (savingGlobalId) return;
+    setSavingGlobalId(food.id);
+    try {
+      await addExistingToLibrary(food.id);
+    } finally {
+      setSavingGlobalId(null);
+    }
+  };
 
   // Handle scanned food from barcode
   const handleScannedFood = (food: TransformedOFFFood) => {
@@ -363,6 +553,9 @@ export function FoodPickerDialog({
         // Save to global cache AND user's library
         foodToAdd = await addToLibrary({
           name: selectedFood.name,
+          brand: selectedFood.brand,
+          brand_slug: null,
+          search_aliases: selectedFood.brand ? [selectedFood.brand.toLowerCase()] : [],
           serving_size: selectedFood.serving_size,
           serving_size_grams: selectedFood.serving_size_grams,
           calories: selectedFood.calories,
@@ -382,9 +575,18 @@ export function FoodPickerDialog({
           vitamin_d: selectedFood.vitamin_d,
           calcium: selectedFood.calcium,
           iron: selectedFood.iron,
+          cholesterol: null,
           fdc_id: null,
           barcode: selectedFood.barcode,
           source: selectedFood.source,
+          source_external_id: null,
+          source_identity_key: null,
+          content_hash: null,
+          is_active: true,
+          verified_at: null,
+          supersedes_food_id: null,
+          source_category: null,
+          variant_label: null,
           embedding: null,
         });
       } catch (err) {
@@ -417,6 +619,7 @@ export function FoodPickerDialog({
       setUnit("serving");
       setSelectedUnitIndex(0);
       setActiveTab("foods");
+      clearGlobal();
     }
     onOpenChange(open);
   };
@@ -490,6 +693,9 @@ export function FoodPickerDialog({
           <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
             <div className="p-3 rounded-lg bg-muted/50">
               <p className="font-medium">{selectedFood.name}</p>
+              {selectedFood.brand && (
+                <p className="text-sm text-muted-foreground">{selectedFood.brand}</p>
+              )}
               <p className="text-sm text-muted-foreground">
                 1 serving = {selectedFood.serving_size}
               </p>
@@ -615,11 +821,32 @@ export function FoodPickerDialog({
                 <Input
                   placeholder="Search your foods..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => handleSearchQueryChange(e.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleGlobalSearch();
+                    }
+                  }}
                   className="pl-9"
                   autoFocus
                 />
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={handleGlobalSearch}
+                disabled={!searchQuery.trim() || isSearchingGlobal}
+                className="h-10 w-10 shrink-0"
+                title="Search all foods"
+              >
+                {isSearchingGlobal ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Globe2 className="h-4 w-4" />
+                )}
+              </Button>
               <Button
                 variant="outline"
                 size="icon"
@@ -631,56 +858,18 @@ export function FoodPickerDialog({
             </div>
 
             <div className="flex-1 overflow-y-auto mt-3">
-              {isLoading && sortedLibraryFoods.length === 0 ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
-                  <p className="text-sm text-muted-foreground">Loading...</p>
-                </div>
-              ) : sortedLibraryFoods.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    {searchQuery
-                      ? "No foods found in your library"
-                      : "Your food library is empty"}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Scan a barcode or add foods from the Food Library
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3 pr-2">
-                  {sortedLibraryFoods.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
-                        <Database className="h-3 w-3" />
-                        <span>Your Library</span>
-                      </div>
-                      {sortedLibraryFoods.map((food) => (
-                        <Card
-                          key={food.id}
-                          className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
-                          onClick={() => handleSelectFood(food)}
-                        >
-                          <div className="flex justify-between items-start">
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium leading-snug break-words line-clamp-2">{food.name}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {food.serving_size}
-                              </p>
-                            </div>
-                            <div className="text-right text-sm ml-2 shrink-0">
-                              <p className="font-medium">{food.calories} cal</p>
-                              <p className="text-xs text-muted-foreground">
-                                {food.protein}P | {food.total_carbohydrates}C | {food.total_fat}F
-                              </p>
-                            </div>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+              <FoodSearchResults
+                libraryFoods={sortedLibraryFoods}
+                globalFoods={globalFoods}
+                isLoadingLibrary={isLoading}
+                isSearchingGlobal={isSearchingGlobal}
+                globalError={globalError}
+                searchQuery={searchQuery}
+                searchedGlobally={Boolean(searchedQuery)}
+                savingGlobalId={savingGlobalId}
+                onSelect={handleSelectFood}
+                onSaveGlobal={handleSaveGlobal}
+              />
             </div>
           </div>
         ) : (
@@ -698,11 +887,32 @@ export function FoodPickerDialog({
                   <Input
                     placeholder="Search your foods..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => handleSearchQueryChange(e.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleGlobalSearch();
+                      }
+                    }}
                     className="pl-9"
                     autoFocus={activeTab === "foods"}
                   />
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={handleGlobalSearch}
+                  disabled={!searchQuery.trim() || isSearchingGlobal}
+                  className="h-10 w-10 shrink-0"
+                  title="Search all foods"
+                >
+                  {isSearchingGlobal ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Globe2 className="h-4 w-4" />
+                  )}
+                </Button>
                 <Button
                   variant="outline"
                   size="icon"
@@ -714,56 +924,18 @@ export function FoodPickerDialog({
               </div>
 
               <div className="flex-1 overflow-y-auto mt-3">
-                {isLoading && sortedLibraryFoods.length === 0 ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
-                    <p className="text-sm text-muted-foreground">Loading...</p>
-                  </div>
-                ) : sortedLibraryFoods.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <p className="text-sm text-muted-foreground">
-                      {searchQuery
-                        ? "No foods found in your library"
-                        : "Your food library is empty"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Scan a barcode or add foods from the Food Library
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3 pr-2">
-                    {sortedLibraryFoods.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
-                          <Database className="h-3 w-3" />
-                          <span>Your Library</span>
-                        </div>
-                        {sortedLibraryFoods.map((food) => (
-                          <Card
-                            key={food.id}
-                            className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
-                            onClick={() => handleSelectFood(food)}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-medium leading-snug break-words line-clamp-2">{food.name}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  {food.serving_size}
-                                </p>
-                              </div>
-                              <div className="text-right text-sm ml-2 shrink-0">
-                                <p className="font-medium">{food.calories} cal</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {food.protein}P | {food.total_carbohydrates}C | {food.total_fat}F
-                                </p>
-                              </div>
-                            </div>
-                          </Card>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                <FoodSearchResults
+                  libraryFoods={sortedLibraryFoods}
+                  globalFoods={globalFoods}
+                  isLoadingLibrary={isLoading}
+                  isSearchingGlobal={isSearchingGlobal}
+                  globalError={globalError}
+                  searchQuery={searchQuery}
+                  searchedGlobally={Boolean(searchedQuery)}
+                  savingGlobalId={savingGlobalId}
+                  onSelect={handleSelectFood}
+                  onSaveGlobal={handleSaveGlobal}
+                />
               </div>
             </TabsContent>
 

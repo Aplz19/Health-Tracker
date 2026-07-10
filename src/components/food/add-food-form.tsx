@@ -53,6 +53,7 @@ interface AddFoodFormProps {
 
 const initialFormData: FoodInsert = {
   name: "",
+  brand: null,
   serving_size: "",
   serving_size_grams: null,
   calories: 0,
@@ -81,6 +82,7 @@ const initialFormData: FoodInsert = {
 function foodToFormData(food: Food): FoodInsert {
   return {
     name: food.name,
+    brand: food.brand,
     serving_size: food.serving_size,
     serving_size_grams: food.serving_size_grams,
     calories: food.calories,
@@ -137,7 +139,7 @@ export function AddFoodForm({ editingFood, onSubmit }: AddFoodFormProps) {
     }
   };
 
-  const updateField = (field: keyof FoodInsert, value: string | number) => {
+  const updateField = (field: keyof FoodInsert, value: string | number | null) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -156,6 +158,16 @@ export function AddFoodForm({ editingFood, onSubmit }: AddFoodFormProps) {
             onChange={(e) => updateField("name", e.target.value)}
             placeholder="e.g., Chicken Breast"
             required
+            className="h-9"
+          />
+        </div>
+        <div>
+          <Label htmlFor="brand">Brand or Restaurant</Label>
+          <Input
+            id="brand"
+            value={formData.brand ?? ""}
+            onChange={(e) => updateField("brand", e.target.value || null)}
+            placeholder="Optional, e.g., Taco Bell or Thomas'"
             className="h-9"
           />
         </div>

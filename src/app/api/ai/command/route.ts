@@ -112,7 +112,7 @@ async function fallbackTextSearch(supabase: ReturnType<typeof getServerSupabase>
   // First try exact match
   let { data } = await supabase
     .from('foods')
-    .select('id, name, serving_size, serving_size_grams, calories, protein, total_fat, total_carbohydrates')
+    .select('id, name, brand, variant_label, source, serving_size, serving_size_grams, calories, protein, total_fat, total_carbohydrates')
     .ilike('name', `%${query}%`)
     .limit(5);
 
@@ -123,7 +123,7 @@ async function fallbackTextSearch(supabase: ReturnType<typeof getServerSupabase>
     for (const word of words) {
       const { data: wordData } = await supabase
         .from('foods')
-        .select('id, name, serving_size, serving_size_grams, calories, protein, total_fat, total_carbohydrates')
+        .select('id, name, brand, variant_label, source, serving_size, serving_size_grams, calories, protein, total_fat, total_carbohydrates')
         .ilike('name', `%${word}%`)
         .limit(5);
 

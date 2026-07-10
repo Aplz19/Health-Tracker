@@ -30,6 +30,9 @@ interface FoodMatch {
   total_fat: number;
   total_carbohydrates: number;
   similarity: number;
+  brand?: string | null;
+  variant_label?: string | null;
+  source?: Food["source"];
 }
 
 // Unit conversion map (same as food-picker-dialog)
@@ -102,9 +105,21 @@ export function AIFoodDialog({
         vitamin_d: null,
         calcium: null,
         iron: null,
+        cholesterol: null,
+        brand: foodMatch.brand ?? null,
+        brand_slug: null,
+        search_aliases: foodMatch.brand ? [foodMatch.brand.toLowerCase()] : [],
+        source_category: null,
+        variant_label: foodMatch.variant_label ?? null,
         fdc_id: null,
         barcode: null,
-        source: 'manual',
+        source: foodMatch.source ?? 'manual',
+        source_external_id: null,
+        source_identity_key: null,
+        content_hash: null,
+        is_active: true,
+        verified_at: null,
+        supersedes_food_id: null,
         embedding: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

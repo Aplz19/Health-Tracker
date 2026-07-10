@@ -51,6 +51,17 @@ These patterns exist deliberately — new code should follow them:
    (e.g. `user_nutrition_goals`), *not* bare localStorage — localStorage is
    per-browser and desyncs across devices. It's acceptable only as a cache
    (see `use-nutrition-goals.ts`).
+6. **Personal-first food search.** Typing in the meal food picker filters the
+   session-cached personal library only, so it stays instant and makes no database
+   request per keystroke. Pressing Enter (or the globe button on mobile) explicitly
+   calls the global-food RPC. Global results may be logged directly; starring one
+   adds only its `user_food_library` link. Recent global query results are held in
+   the same session cache.
+7. **Brand is structured.** `foods.name` is the item name and nullable `brand` is
+   the manufacturer/restaurant. Search covers both plus aliases, while the UI omits
+   the brand line cleanly for unbranded custom foods; the manual-food form exposes
+   brand as an optional field. `source` remains provenance
+   (`manual`, `openfoodfacts`, `restaurant_official`, etc.), not a display brand.
 
 ## Mobile/iOS conventions
 
@@ -88,6 +99,28 @@ Schema changes are plain SQL files in `sql/`, applied manually via the
 Supabase dashboard SQL editor (there is no migration runner). Follow the
 existing files' style: `CREATE TABLE IF NOT EXISTS`, enable RLS, add
 per-user policies. Pending: `add_nutrition_goals.sql` (goals sync).
+
+`sql/add_restaurant_food_import.sql` is intentionally **staged but unapplied**.
+It adds brand-aware global search, immutable restaurant-food version fields,
+`food_import_batches`, and row-level `food_provenance`. Authoritative refreshes
+insert a new food row and deactivate the prior version instead of changing
+nutrition underneath historical `food_logs`.
+
+## Restaurant nutrition transfer (offline gate)
+
+The Prometheus nutrition pipeline emits the
+`health-tracker-restaurant-foods-v1` bundle only from fully approved jobs with
+complete frontier row coverage. Validate a copied bundle without database access:
+
+```bash
+npm run validate-restaurant-import -- <bundle-directory>
+```
+
+The validator checks file hashes, row counts, audit coverage, numeric mappings,
+version-key/active-identity uniqueness, and evidence linkage. It has no Supabase client and cannot
+write the database. Do not apply `add_restaurant_food_import.sql`, create an admin
+importer, or deploy the brand/global-search UI until the offline bundle review is
+accepted.
 
 ## Development
 

@@ -64,12 +64,10 @@ function transformProduct(product: OFFProduct, barcode: string): TransformedOFFF
   const n = product.nutriments;
 
   // Get product name
-  let name = product.product_name_en || product.product_name || "Unknown Product";
+  const name = product.product_name_en || product.product_name || "Unknown Product";
 
-  // Add brand if available
-  if (product.brands && !name.toLowerCase().includes(product.brands.toLowerCase())) {
-    name = `${product.brands} ${name}`;
-  }
+  // Keep brand structured for display and search instead of baking it into name.
+  const brand = product.brands?.trim() || null;
 
   // Determine serving size
   let servingSize = "100g";
@@ -118,6 +116,7 @@ function transformProduct(product: OFFProduct, barcode: string): TransformedOFFF
 
   return {
     name,
+    brand,
     serving_size: servingSize,
     serving_size_grams: servingSizeGrams,
     calories,

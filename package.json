@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "generate-icons": "node scripts/generate-icons.js",
-    "generate-embeddings": "tsx scripts/generate-food-embeddings.ts"
+    "generate-embeddings": "tsx scripts/generate-food-embeddings.ts",
+    "validate-restaurant-import": "tsx scripts/validate-restaurant-import.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

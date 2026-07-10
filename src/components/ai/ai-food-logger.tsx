@@ -22,6 +22,9 @@ interface FoodMatch {
   total_fat: number;
   total_carbohydrates: number;
   similarity: number;
+  brand?: string | null;
+  variant_label?: string | null;
+  source?: "manual" | "usda" | "openfoodfacts" | "restaurant_official";
 }
 
 interface FoodResultWithParsed {
@@ -225,6 +228,9 @@ export function AIFoodLogger({ userId, onFoodSelected, onClose }: AIFoodLoggerPr
                 >
                   <div className="flex-1 min-w-0">
                     <p className="font-medium leading-snug break-words line-clamp-2">{food.match.name}</p>
+                    {food.match.brand && (
+                      <p className="text-xs text-muted-foreground">{food.match.brand}</p>
+                    )}
                     <p className="text-sm text-muted-foreground">
                       {food.parsed.amount} {food.parsed.unit} · {Math.round(food.match.calories * servings)} cal
                     </p>

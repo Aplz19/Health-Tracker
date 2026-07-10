@@ -30,6 +30,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 interface Food {
   id: string;
   name: string;
+  brand: string | null;
   serving_size: string;
 }
 
@@ -55,8 +56,8 @@ async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 function createFoodSearchText(food: Food): string {
-  // Combine name and serving size for better semantic matching
-  return `${food.name} ${food.serving_size}`.toLowerCase();
+  // Brand is structured but belongs in search text (for example, Taco Bell).
+  return [food.brand, food.name, food.serving_size].filter(Boolean).join(" ").toLowerCase();
 }
 
 async function main() {
@@ -65,7 +66,7 @@ async function main() {
   // Fetch all foods without embeddings
   const { data: foods, error: fetchError } = await supabase
     .from('foods')
-    .select('id, name, serving_size')
+    .select('id, name, brand, serving_size')
     .is('embedding', null);
 
   if (fetchError) {

@@ -45,6 +45,9 @@ export function FoodPanel() {
     // Map OFF food to FoodInsert format
     await addToLibrary({
       name: food.name,
+      brand: food.brand,
+      brand_slug: null,
+      search_aliases: food.brand ? [food.brand.toLowerCase()] : [],
       serving_size: food.serving_size,
       serving_size_grams: food.serving_size_grams,
       calories: food.calories,
@@ -64,9 +67,18 @@ export function FoodPanel() {
       vitamin_d: food.vitamin_d,
       calcium: food.calcium,
       iron: food.iron,
+      cholesterol: null,
       fdc_id: null,
       barcode: food.barcode,
       source: food.source,
+      source_external_id: null,
+      source_identity_key: null,
+      content_hash: null,
+      is_active: true,
+      verified_at: null,
+      supersedes_food_id: null,
+      source_category: null,
+      variant_label: null,
       embedding: null,
     });
   };

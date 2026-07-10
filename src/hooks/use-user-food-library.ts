@@ -13,6 +13,14 @@ export interface LibraryFood extends Food {
 
 const LIBRARY_CACHE_KEY = "user_food_library";
 
+function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function useUserFoodLibrary(searchQuery: string = "") {
   // The full (unfiltered) library is fetched ONCE and searched in memory.
   // Previously searchQuery was a dependency of the fetch, so every keystroke
@@ -78,8 +86,18 @@ export function useUserFoodLibrary(searchQuery: string = "") {
   // In-memory search — instant, no network per keystroke.
   const foods = useMemo(() => {
     if (!searchQuery) return allFoods;
-    const q = searchQuery.toLowerCase();
-    return allFoods.filter((f) => f.name.toLowerCase().includes(q));
+    const terms = normalizeSearchText(searchQuery).split(" ").filter(Boolean);
+    return allFoods.filter((food) => {
+      const searchable = normalizeSearchText([
+        food.name,
+        food.brand,
+        food.brand_slug,
+        ...(food.search_aliases || []),
+        food.variant_label,
+        food.source_category,
+      ].filter(Boolean).join(" "));
+      return terms.every((term) => searchable.includes(term));
+    });
   }, [allFoods, searchQuery]);
 
   // Add a food to the user's personal library

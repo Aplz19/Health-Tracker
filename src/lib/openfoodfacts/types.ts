@@ -75,6 +75,7 @@ export interface OFFNutriments {
 // Transformed food ready for our database
 export interface TransformedOFFFood {
   name: string;
+  brand: string | null;
   serving_size: string;
   serving_size_grams: number | null;
   calories: number;
