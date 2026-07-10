@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { RESTAURANT_IMPORT_CONTRACT } from "../../src/lib/restaurant-import/contract";
 
-export const RESTAURANT_IMPORT_CONTRACT = "health-tracker-restaurant-foods-v1";
+export { RESTAURANT_IMPORT_CONTRACT };
 
 const REQUIRED_FILES = [
   "batches.json",

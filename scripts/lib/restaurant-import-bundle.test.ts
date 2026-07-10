@@ -168,7 +168,7 @@ test("accepts a complete hash-bound PASS bundle", () => {
   assert.ok(result.payloadBytes > 0);
 });
 
-test("rejects a file changed after the manifest was signed", () => {
+test("rejects a file changed after its hash was declared in the manifest", () => {
   const root = makeFixture();
   writeFileSync(join(root, "foods.jsonl"), `${readFileSync(join(root, "foods.jsonl"), "utf8")} `);
   assert.throws(() => loadRestaurantImportBundle(root), /foods\.jsonl hash mismatch/);

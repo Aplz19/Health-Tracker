@@ -21,7 +21,7 @@ function main() {
         food_rows: bundle.payload.foods.length,
         provenance_rows: bundle.payload.provenance.length,
         rpc_payload_bytes: bundle.payloadBytes,
-        database_writes: 0,
+        catalog_writes: 0,
       },
       null,
       2,

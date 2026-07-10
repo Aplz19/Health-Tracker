@@ -5,8 +5,24 @@
 
 BEGIN;
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_extension extension
+    JOIN pg_catalog.pg_namespace namespace
+      ON namespace.oid = extension.extnamespace
+    WHERE extension.extname IN ('pgcrypto', 'pg_trgm')
+      AND namespace.nspname <> 'extensions'
+  ) THEN
+    RAISE EXCEPTION 'pgcrypto and pg_trgm must be installed in the trusted extensions schema';
+  END IF;
+END;
+$$;
 
 ALTER TABLE foods
   ALTER COLUMN source TYPE text USING source::text,
@@ -50,9 +66,9 @@ ALTER TABLE foods
   CHECK (source IN ('manual', 'usda', 'openfoodfacts', 'restaurant_official'));
 
 CREATE INDEX IF NOT EXISTS foods_name_trgm_idx
-  ON foods USING gin (name gin_trgm_ops);
+  ON foods USING gin (name extensions.gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS foods_brand_trgm_idx
-  ON foods USING gin (brand gin_trgm_ops);
+  ON foods USING gin (brand extensions.gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS foods_brand_slug_idx
   ON foods (brand_slug)
   WHERE brand_slug IS NOT NULL;
@@ -109,8 +125,106 @@ CREATE TABLE IF NOT EXISTS food_provenance (
   UNIQUE (import_batch_id, pipeline_row_id)
 );
 
+-- Immutable activation journal. One row describes the complete catalog-state
+-- effect for one logical item in one approved chain snapshot:
+--   observe            active version was already the audited version
+--   activate           first active version for the identity
+--   replace            new immutable version replaced the prior active row
+--   reactivate         an existing inactive version became active again
+--   deactivate_missing prior active identity was absent from the full snapshot
+CREATE TABLE IF NOT EXISTS food_import_transitions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  import_batch_id uuid NOT NULL REFERENCES food_import_batches(id) ON DELETE RESTRICT,
+  source_identity_key text NOT NULL,
+  transition_type text NOT NULL CHECK (
+    transition_type IN (
+      'observe', 'activate', 'replace', 'reactivate', 'deactivate_missing'
+    )
+  ),
+  from_food_id uuid REFERENCES foods(id) ON DELETE RESTRICT,
+  to_food_id uuid REFERENCES foods(id) ON DELETE RESTRICT,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (import_batch_id, source_identity_key),
+  CHECK (
+    (transition_type = 'observe'
+      AND from_food_id IS NOT NULL AND to_food_id = from_food_id)
+    OR (transition_type = 'activate'
+      AND from_food_id IS NULL AND to_food_id IS NOT NULL)
+    OR (transition_type = 'replace'
+      AND from_food_id IS NOT NULL AND to_food_id IS NOT NULL
+      AND from_food_id <> to_food_id)
+    OR (transition_type = 'reactivate'
+      AND to_food_id IS NOT NULL
+      AND (from_food_id IS NULL OR from_food_id <> to_food_id))
+    OR (transition_type = 'deactivate_missing'
+      AND from_food_id IS NOT NULL AND to_food_id IS NULL)
+  )
+);
+
+-- Moving or removing a personal-library link is journaled with its original
+-- UUID/timestamp and whether the destination link pre-existed. That is enough
+-- to reverse the import exactly without deleting a link the user already had.
+CREATE TABLE IF NOT EXISTS food_import_library_transitions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  import_batch_id uuid NOT NULL REFERENCES food_import_batches(id) ON DELETE RESTRICT,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
+  transition_type text NOT NULL CHECK (transition_type IN ('migrate', 'remove_missing')),
+  from_food_id uuid NOT NULL REFERENCES foods(id) ON DELETE RESTRICT,
+  to_food_id uuid REFERENCES foods(id) ON DELETE RESTRICT,
+  from_library_id uuid NOT NULL,
+  from_added_at timestamptz NOT NULL,
+  to_library_id uuid,
+  to_added_at timestamptz,
+  to_link_preexisted boolean NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (import_batch_id, user_id, from_food_id),
+  CHECK (
+    (transition_type = 'migrate'
+      AND to_food_id IS NOT NULL AND to_food_id <> from_food_id
+      AND to_library_id IS NOT NULL AND to_added_at IS NOT NULL)
+    OR (transition_type = 'remove_missing'
+      AND to_food_id IS NULL AND to_library_id IS NULL
+      AND to_added_at IS NULL AND to_link_preexisted IS FALSE)
+  )
+);
+
+CREATE OR REPLACE FUNCTION public.reject_food_import_journal_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  RAISE EXCEPTION 'food import transition journals are immutable'
+    USING ERRCODE = '55000';
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.reject_food_import_journal_mutation()
+  FROM PUBLIC, anon, authenticated, service_role;
+
+DROP TRIGGER IF EXISTS food_import_transitions_immutable
+  ON food_import_transitions;
+CREATE TRIGGER food_import_transitions_immutable
+  BEFORE UPDATE OR DELETE ON food_import_transitions
+  FOR EACH ROW EXECUTE FUNCTION public.reject_food_import_journal_mutation();
+
+DROP TRIGGER IF EXISTS food_import_library_transitions_immutable
+  ON food_import_library_transitions;
+CREATE TRIGGER food_import_library_transitions_immutable
+  BEFORE UPDATE OR DELETE ON food_import_library_transitions
+  FOR EACH ROW EXECUTE FUNCTION public.reject_food_import_journal_mutation();
+
 ALTER TABLE food_import_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_provenance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE food_import_transitions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE food_import_library_transitions ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE food_import_transitions
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE food_import_library_transitions
+  FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE food_import_transitions TO service_role;
+GRANT SELECT ON TABLE food_import_library_transitions TO service_role;
 
 DROP POLICY IF EXISTS "Authenticated users can read food import batches"
   ON food_import_batches;
@@ -146,9 +260,16 @@ DECLARE
   provenance_count integer;
   inserted_batch_count integer := 0;
   inserted_food_count integer := 0;
+  observed_food_count integer := 0;
+  activated_food_count integer := 0;
+  replaced_food_count integer := 0;
   reactivated_food_count integer := 0;
   deactivated_food_count integer := 0;
+  deactivated_missing_food_count integer := 0;
   inserted_provenance_count integer := 0;
+  transition_count integer := 0;
+  migrated_library_count integer := 0;
+  removed_library_count integer := 0;
 BEGIN
   IF bundle IS NULL OR jsonb_typeof(bundle) <> 'object' THEN
     RAISE EXCEPTION 'bundle must be a JSON object' USING ERRCODE = '22023';
@@ -268,7 +389,8 @@ BEGIN
     expected_rows integer NOT NULL,
     checked_rows integer NOT NULL,
     approved_at timestamptz NOT NULL,
-    audit_usage jsonb NOT NULL
+    audit_usage jsonb NOT NULL,
+    UNIQUE (chain)
   ) ON COMMIT DROP;
 
   INSERT INTO pg_temp.restaurant_batch_stage
@@ -529,6 +651,19 @@ BEGIN
        OR EXISTS (
          SELECT 1 FROM jsonb_each(provenance.nutrient_qualifiers) qualifier(key, value)
          WHERE jsonb_typeof(qualifier.value) <> 'object'
+            OR (SELECT count(*) FROM jsonb_object_keys(qualifier.value)) <> 5
+            OR EXISTS (
+              SELECT 1 FROM jsonb_object_keys(qualifier.value) supplied(key)
+              WHERE supplied.key <> ALL (ARRAY[
+                'calculation_policy', 'calculation_value', 'operator', 'raw', 'threshold'
+              ])
+            )
+            OR qualifier.value ->> 'calculation_policy'
+              IS DISTINCT FROM 'midpoint_of_published_upper_bound'
+            OR qualifier.value ->> 'operator' IS DISTINCT FROM '<'
+            OR jsonb_typeof(qualifier.value -> 'raw') <> 'string'
+            OR jsonb_typeof(qualifier.value -> 'calculation_value') <> 'number'
+            OR jsonb_typeof(qualifier.value -> 'threshold') <> 'number'
        )
   ) THEN
     RAISE EXCEPTION 'provenance source, evidence, or nutrient validation failed' USING ERRCODE = '22023';
@@ -558,6 +693,46 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
+  -- Qualified published values use one explicit v1 convention: `<N` maps to
+  -- N/2, while the untouched source string remains in raw_nutrients.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_temp.restaurant_provenance_stage provenance
+    JOIN pg_temp.restaurant_food_stage food USING (source_identity_key, content_hash)
+    CROSS JOIN LATERAL jsonb_each(provenance.nutrient_qualifiers) qualifier(key, value)
+    WHERE qualifier.value ->> 'raw' !~ '^<[0-9]+(\.[0-9]+)?$'
+       OR (qualifier.value ->> 'threshold')::numeric <= 0
+       OR (qualifier.value ->> 'calculation_value')::numeric
+          IS DISTINCT FROM (qualifier.value ->> 'threshold')::numeric / 2
+       OR qualifier.value ->> 'raw'
+          IS DISTINCT FROM provenance.raw_nutrients ->> CASE qualifier.key
+            WHEN 'calories' THEN 'calories'
+            WHEN 'protein' THEN 'protein_g'
+            WHEN 'total_fat' THEN 'total_fat_g'
+            WHEN 'saturated_fat' THEN 'saturated_fat_g'
+            WHEN 'cholesterol' THEN 'cholesterol_mg'
+            WHEN 'sodium' THEN 'sodium_mg'
+            WHEN 'total_carbohydrates' THEN 'carbohydrates_g'
+            WHEN 'fiber' THEN 'fiber_g'
+            WHEN 'sugar' THEN 'sugars_g'
+          END
+       OR (qualifier.value ->> 'calculation_value')::numeric
+          IS DISTINCT FROM CASE qualifier.key
+            WHEN 'calories' THEN food.calories
+            WHEN 'protein' THEN food.protein
+            WHEN 'total_fat' THEN food.total_fat
+            WHEN 'saturated_fat' THEN food.saturated_fat
+            WHEN 'cholesterol' THEN food.cholesterol
+            WHEN 'sodium' THEN food.sodium
+            WHEN 'total_carbohydrates' THEN food.total_carbohydrates
+            WHEN 'fiber' THEN food.fiber
+            WHEN 'sugar' THEN food.sugar
+          END
+  ) THEN
+    RAISE EXCEPTION 'qualified nutrient mapping violates the v1 midpoint convention'
+      USING ERRCODE = '22023';
+  END IF;
+
   -- Existing immutable keys must mean the exact same audited batch/version.
   IF EXISTS (
     SELECT 1
@@ -578,6 +753,10 @@ BEGIN
     RAISE EXCEPTION 'an existing batch_key has different audited content' USING ERRCODE = '23505';
   END IF;
 
+  -- v1 hashes the serving and mapped nutrient payload. The receiver also treats
+  -- these supplemental fields as immutable for an identity/content pair. If an
+  -- exporter must change one without changing that v1 hash input, it requires a
+  -- new transfer-contract version rather than an in-place database mutation.
   IF EXISTS (
     SELECT 1
     FROM public.foods existing
@@ -605,8 +784,91 @@ BEGIN
          incoming.source_external_id
        )
   ) THEN
-    RAISE EXCEPTION 'an existing identity/content version has different food values'
+    RAISE EXCEPTION 'v1 content hash resolves to different immutable food values; contract upgrade required'
       USING ERRCODE = '23505';
+  END IF;
+
+  -- Validate every previously imported batch before considering it an exact
+  -- replay. Missing or different provenance fails closed before catalog state
+  -- can change.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_temp.restaurant_batch_stage requested_batch
+    JOIN public.food_import_batches saved_batch USING (batch_key)
+    JOIN pg_temp.restaurant_provenance_stage incoming USING (batch_key)
+    LEFT JOIN public.foods expected_food
+      ON expected_food.source = 'restaurant_official'
+     AND expected_food.source_identity_key = incoming.source_identity_key
+     AND expected_food.content_hash = incoming.content_hash
+    LEFT JOIN public.food_provenance existing
+      ON existing.import_batch_id = saved_batch.id
+     AND existing.pipeline_row_id = incoming.pipeline_row_id
+    WHERE expected_food.id IS NULL
+       OR existing.id IS NULL
+       OR ROW(
+         existing.food_id, existing.pipeline_display_name, existing.source_url,
+         existing.authorization_url, existing.source_id, existing.source_sha256,
+         existing.page_number, existing.source_section, existing.source_category,
+         existing.value_method, existing.evidence, existing.raw_nutrients,
+         existing.nutrient_qualifiers
+       ) IS DISTINCT FROM ROW(
+         expected_food.id, incoming.pipeline_display_name, incoming.source_url,
+         incoming.authorization_url, incoming.source_id, incoming.source_sha256,
+         incoming.page_number, incoming.source_section, incoming.source_category,
+         incoming.value_method, incoming.evidence, incoming.raw_nutrients,
+         incoming.nutrient_qualifiers
+       )
+  ) OR EXISTS (
+    SELECT 1
+    FROM pg_temp.restaurant_batch_stage requested_batch
+    JOIN public.food_import_batches saved_batch USING (batch_key)
+    LEFT JOIN public.food_provenance existing
+      ON existing.import_batch_id = saved_batch.id
+    GROUP BY saved_batch.id, requested_batch.expected_rows
+    HAVING count(existing.id) <> requested_batch.expected_rows
+  ) THEN
+    RAISE EXCEPTION 'an existing batch has incomplete or different provenance'
+      USING ERRCODE = '23505';
+  END IF;
+
+  CREATE TEMP TABLE pg_temp.restaurant_new_batch_stage ON COMMIT DROP AS
+  SELECT incoming.*
+  FROM pg_temp.restaurant_batch_stage incoming
+  LEFT JOIN public.food_import_batches existing USING (batch_key)
+  WHERE existing.id IS NULL;
+
+  -- A complete exact replay is a zero-write result even after a later snapshot
+  -- changed which versions are active. This check intentionally precedes the
+  -- freshness gate and all transition planning.
+  IF NOT EXISTS (SELECT 1 FROM pg_temp.restaurant_new_batch_stage) THEN
+    RETURN jsonb_build_object(
+      'status', 'IDEMPOTENT_REPLAY',
+      'contract', contract_name,
+      'batch_rows', chain_count,
+      'food_rows', food_count,
+      'provenance_rows', provenance_count,
+      'inserted_batches', 0,
+      'inserted_food_versions', 0,
+      'reactivated_food_versions', 0,
+      'deactivated_food_versions', 0,
+      'inserted_provenance', 0
+    );
+  END IF;
+
+  -- New snapshots must advance each chain's trusted approval clock. Bound
+  -- future skew so one malformed timestamp cannot permanently block the chain.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_temp.restaurant_new_batch_stage incoming
+    WHERE incoming.approved_at > transaction_timestamp() + interval '10 minutes'
+       OR incoming.approved_at <= coalesce((
+         SELECT max(existing.approved_at)
+         FROM public.food_import_batches existing
+         WHERE existing.chain = incoming.chain
+       ), '-infinity'::timestamptz)
+  ) THEN
+    RAISE EXCEPTION 'new chain snapshot approved_at is stale or materially in the future'
+      USING ERRCODE = '22023';
   END IF;
 
   INSERT INTO public.food_import_batches (
@@ -616,28 +878,25 @@ BEGIN
   SELECT
     batch_key, chain, pipeline_job_slug, candidate_sha256, audit_sha256,
     audit_model, audit_verdict, expected_rows, checked_rows, approved_at, audit_usage
-  FROM pg_temp.restaurant_batch_stage
-  ON CONFLICT (batch_key) DO NOTHING;
+  FROM pg_temp.restaurant_new_batch_stage;
   GET DIAGNOSTICS inserted_batch_count = ROW_COUNT;
 
   CREATE TEMP TABLE pg_temp.restaurant_food_target ON COMMIT DROP AS
   SELECT
     incoming.*,
+    provenance.batch_key,
     existing.id AS target_food_id,
-    coalesce(existing.is_active, false) AS target_was_active,
     active.id AS prior_active_food_id,
-    NOT EXISTS (
-      SELECT 1
-      FROM public.food_provenance saved_provenance
-      JOIN public.food_import_batches saved_batch
-        ON saved_batch.id = saved_provenance.import_batch_id
-      JOIN pg_temp.restaurant_provenance_stage requested
-        ON requested.batch_key = saved_batch.batch_key
-       AND requested.pipeline_row_id = saved_provenance.pipeline_row_id
-      WHERE requested.source_identity_key = incoming.source_identity_key
-        AND requested.content_hash = incoming.content_hash
-    ) AS is_new_observation
+    CASE
+      WHEN existing.id IS NOT NULL AND active.id = existing.id THEN 'observe'
+      WHEN existing.id IS NULL AND active.id IS NULL THEN 'activate'
+      WHEN existing.id IS NULL THEN 'replace'
+      ELSE 'reactivate'
+    END::text AS transition_type
   FROM pg_temp.restaurant_food_stage incoming
+  JOIN pg_temp.restaurant_provenance_stage provenance
+    USING (source_identity_key, content_hash)
+  JOIN pg_temp.restaurant_new_batch_stage batch USING (batch_key)
   LEFT JOIN public.foods existing
     ON existing.source = 'restaurant_official'
    AND existing.source_identity_key = incoming.source_identity_key
@@ -647,13 +906,41 @@ BEGIN
    AND active.source_identity_key = incoming.source_identity_key
    AND active.is_active IS TRUE;
 
+  CREATE TEMP TABLE pg_temp.restaurant_missing_target ON COMMIT DROP AS
+  SELECT
+    batch.batch_key,
+    active.source_identity_key,
+    active.id AS prior_active_food_id
+  FROM pg_temp.restaurant_new_batch_stage batch
+  JOIN public.foods active
+    ON active.source = 'restaurant_official'
+   AND active.brand = batch.chain
+   AND active.is_active IS TRUE
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM pg_temp.restaurant_food_stage incoming
+    WHERE incoming.brand = batch.chain
+      AND incoming.source_identity_key = active.source_identity_key
+  );
+
+  -- Freeze personal-library writes while their exact before/after links are
+  -- captured and migrated inside this transaction.
+  LOCK TABLE public.user_food_library IN SHARE ROW EXCLUSIVE MODE;
+
   UPDATE public.foods current_version
   SET is_active = false, updated_at = now()
   FROM pg_temp.restaurant_food_target target
-  WHERE target.is_new_observation
+  WHERE target.transition_type IN ('replace', 'reactivate')
     AND current_version.id = target.prior_active_food_id
     AND current_version.id IS DISTINCT FROM target.target_food_id;
   GET DIAGNOSTICS deactivated_food_count = ROW_COUNT;
+
+  UPDATE public.foods current_version
+  SET is_active = false, updated_at = now()
+  FROM pg_temp.restaurant_missing_target missing
+  WHERE current_version.id = missing.prior_active_food_id;
+  GET DIAGNOSTICS deactivated_missing_food_count = ROW_COUNT;
+  deactivated_food_count := deactivated_food_count + deactivated_missing_food_count;
 
   INSERT INTO public.foods (
     name, brand, brand_slug, search_aliases, source_category, variant_label,
@@ -674,52 +961,122 @@ BEGIN
     target.vitamin_a, target.vitamin_c, target.vitamin_d, target.calcium,
     target.iron, 'restaurant_official', target.source_external_id,
     target.source_identity_key, target.content_hash, true, target.verified_at,
-    target.prior_active_food_id
+    CASE WHEN target.transition_type = 'replace'
+      THEN target.prior_active_food_id ELSE NULL END
   FROM pg_temp.restaurant_food_target target
-  WHERE target.target_food_id IS NULL;
+  WHERE target.transition_type IN ('activate', 'replace');
   GET DIAGNOSTICS inserted_food_count = ROW_COUNT;
 
+  UPDATE pg_temp.restaurant_food_target target
+  SET target_food_id = saved.id
+  FROM public.foods saved
+  WHERE saved.source = 'restaurant_official'
+    AND saved.source_identity_key = target.source_identity_key
+    AND saved.content_hash = target.content_hash;
+
+  -- Reactivation changes only active state. In particular, never rewrite the
+  -- historical supersedes pointer: pointing an old version at its successor
+  -- would create a two-node cycle.
   UPDATE public.foods existing
-  SET
-    is_active = true,
-    verified_at = target.verified_at,
-    supersedes_food_id = target.prior_active_food_id,
-    updated_at = now()
+  SET is_active = true, updated_at = now()
   FROM pg_temp.restaurant_food_target target
-  WHERE target.is_new_observation
-    AND target.target_food_id = existing.id
-    AND NOT target.target_was_active;
+  WHERE target.transition_type = 'reactivate'
+    AND target.target_food_id = existing.id;
   GET DIAGNOSTICS reactivated_food_count = ROW_COUNT;
 
-  -- A conflicting existing provenance row is never silently overwritten.
-  IF EXISTS (
-    SELECT 1
-    FROM pg_temp.restaurant_provenance_stage incoming
-    JOIN public.food_import_batches batch USING (batch_key)
-    JOIN public.food_provenance existing
-      ON existing.import_batch_id = batch.id
-     AND existing.pipeline_row_id = incoming.pipeline_row_id
-    JOIN public.foods expected_food
-      ON expected_food.source = 'restaurant_official'
-     AND expected_food.source_identity_key = incoming.source_identity_key
-     AND expected_food.content_hash = incoming.content_hash
-    WHERE ROW(
-      existing.food_id, existing.pipeline_display_name, existing.source_url,
-      existing.authorization_url, existing.source_id, existing.source_sha256,
-      existing.page_number, existing.source_section, existing.source_category,
-      existing.value_method, existing.evidence, existing.raw_nutrients,
-      existing.nutrient_qualifiers
-    ) IS DISTINCT FROM ROW(
-      expected_food.id, incoming.pipeline_display_name, incoming.source_url,
-      incoming.authorization_url, incoming.source_id, incoming.source_sha256,
-      incoming.page_number, incoming.source_section, incoming.source_category,
-      incoming.value_method, incoming.evidence, incoming.raw_nutrients,
-      incoming.nutrient_qualifiers
-    )
-  ) THEN
-    RAISE EXCEPTION 'an existing batch/pipeline row has different provenance'
-      USING ERRCODE = '23505';
-  END IF;
+  SELECT
+    count(*) FILTER (WHERE transition_type = 'observe'),
+    count(*) FILTER (WHERE transition_type = 'activate'),
+    count(*) FILTER (WHERE transition_type = 'replace')
+  INTO observed_food_count, activated_food_count, replaced_food_count
+  FROM pg_temp.restaurant_food_target;
+
+  INSERT INTO public.food_import_transitions (
+    import_batch_id, source_identity_key, transition_type,
+    from_food_id, to_food_id
+  )
+  SELECT
+    batch.id,
+    target.source_identity_key,
+    target.transition_type,
+    CASE
+      WHEN target.transition_type = 'observe' THEN target.target_food_id
+      WHEN target.transition_type IN ('replace', 'reactivate')
+        THEN target.prior_active_food_id
+      ELSE NULL
+    END,
+    target.target_food_id
+  FROM pg_temp.restaurant_food_target target
+  JOIN public.food_import_batches batch USING (batch_key)
+  UNION ALL
+  SELECT
+    batch.id,
+    missing.source_identity_key,
+    'deactivate_missing',
+    missing.prior_active_food_id,
+    NULL
+  FROM pg_temp.restaurant_missing_target missing
+  JOIN public.food_import_batches batch USING (batch_key);
+  GET DIAGNOSTICS transition_count = ROW_COUNT;
+
+  CREATE TEMP TABLE pg_temp.restaurant_library_transition_stage ON COMMIT DROP AS
+  SELECT
+    transition.import_batch_id,
+    source_link.user_id,
+    CASE WHEN transition.transition_type = 'deactivate_missing'
+      THEN 'remove_missing' ELSE 'migrate' END::text AS transition_type,
+    transition.from_food_id,
+    transition.to_food_id,
+    source_link.id AS from_library_id,
+    source_link.added_at AS from_added_at,
+    CASE
+      WHEN transition.to_food_id IS NULL THEN NULL
+      ELSE coalesce(destination_link.id, gen_random_uuid())
+    END AS to_library_id,
+    CASE
+      WHEN transition.to_food_id IS NULL THEN NULL
+      ELSE coalesce(destination_link.added_at, source_link.added_at)
+    END AS to_added_at,
+    destination_link.id IS NOT NULL AS to_link_preexisted
+  FROM public.food_import_transitions transition
+  JOIN public.user_food_library source_link
+    ON source_link.food_id = transition.from_food_id
+  LEFT JOIN public.user_food_library destination_link
+    ON destination_link.user_id = source_link.user_id
+   AND destination_link.food_id = transition.to_food_id
+  WHERE transition.import_batch_id IN (
+    SELECT batch.id
+    FROM public.food_import_batches batch
+    JOIN pg_temp.restaurant_new_batch_stage incoming USING (batch_key)
+  )
+    AND transition.transition_type IN ('replace', 'reactivate', 'deactivate_missing');
+
+  INSERT INTO public.food_import_library_transitions (
+    import_batch_id, user_id, transition_type, from_food_id, to_food_id,
+    from_library_id, from_added_at, to_library_id, to_added_at,
+    to_link_preexisted
+  )
+  SELECT
+    import_batch_id, user_id, transition_type, from_food_id, to_food_id,
+    from_library_id, from_added_at, to_library_id, to_added_at,
+    to_link_preexisted
+  FROM pg_temp.restaurant_library_transition_stage;
+
+  INSERT INTO public.user_food_library (id, user_id, food_id, added_at)
+  SELECT to_library_id, user_id, to_food_id, to_added_at
+  FROM pg_temp.restaurant_library_transition_stage
+  WHERE transition_type = 'migrate'
+    AND to_link_preexisted IS FALSE;
+
+  DELETE FROM public.user_food_library library
+  USING pg_temp.restaurant_library_transition_stage transition
+  WHERE library.id = transition.from_library_id;
+
+  SELECT
+    count(*) FILTER (WHERE transition_type = 'migrate'),
+    count(*) FILTER (WHERE transition_type = 'remove_missing')
+  INTO migrated_library_count, removed_library_count
+  FROM pg_temp.restaurant_library_transition_stage;
 
   INSERT INTO public.food_provenance (
     food_id, import_batch_id, pipeline_row_id, pipeline_display_name,
@@ -735,12 +1092,12 @@ BEGIN
     incoming.value_method, incoming.evidence, incoming.raw_nutrients,
     incoming.nutrient_qualifiers
   FROM pg_temp.restaurant_provenance_stage incoming
+  JOIN pg_temp.restaurant_new_batch_stage requested_batch USING (batch_key)
   JOIN public.food_import_batches batch USING (batch_key)
   JOIN public.foods food
     ON food.source = 'restaurant_official'
    AND food.source_identity_key = incoming.source_identity_key
-   AND food.content_hash = incoming.content_hash
-  ON CONFLICT (import_batch_id, pipeline_row_id) DO NOTHING;
+   AND food.content_hash = incoming.content_hash;
   GET DIAGNOSTICS inserted_provenance_count = ROW_COUNT;
 
   IF (SELECT count(*)
@@ -755,17 +1112,49 @@ BEGIN
          JOIN public.food_provenance provenance
            ON provenance.import_batch_id = batch.id
           AND provenance.pipeline_row_id = incoming.pipeline_row_id) <> provenance_count
+     OR transition_count <> (
+       SELECT count(*) FROM pg_temp.restaurant_food_target
+     ) + deactivated_missing_food_count
+     OR EXISTS (
+       SELECT 1
+       FROM pg_temp.restaurant_new_batch_stage batch
+       JOIN public.foods active
+         ON active.source = 'restaurant_official'
+        AND active.brand = batch.chain
+        AND active.is_active IS TRUE
+       WHERE NOT EXISTS (
+         SELECT 1 FROM pg_temp.restaurant_food_stage incoming
+         WHERE incoming.brand = batch.chain
+           AND incoming.source_identity_key = active.source_identity_key
+       )
+     )
+     OR EXISTS (
+       SELECT 1
+       FROM pg_temp.restaurant_food_stage incoming
+       JOIN pg_temp.restaurant_provenance_stage provenance
+         USING (source_identity_key, content_hash)
+       JOIN pg_temp.restaurant_new_batch_stage batch USING (batch_key)
+       LEFT JOIN public.foods active
+         ON active.source = 'restaurant_official'
+        AND active.source_identity_key = incoming.source_identity_key
+        AND active.content_hash = incoming.content_hash
+        AND active.is_active IS TRUE
+       WHERE active.id IS NULL
+     )
+     OR EXISTS (
+       SELECT 1
+       FROM public.user_food_library library
+       JOIN public.foods food ON food.id = library.food_id
+       JOIN pg_temp.restaurant_new_batch_stage batch ON batch.chain = food.brand
+       WHERE food.source = 'restaurant_official'
+         AND food.is_active IS FALSE
+     )
   THEN
-    RAISE EXCEPTION 'post-import count verification failed';
+    RAISE EXCEPTION 'post-import count, snapshot, transition, or library verification failed';
   END IF;
 
   RETURN jsonb_build_object(
-    'status', CASE
-      WHEN inserted_batch_count + inserted_food_count + reactivated_food_count
-         + deactivated_food_count + inserted_provenance_count = 0
-      THEN 'IDEMPOTENT_REPLAY'
-      ELSE 'IMPORTED'
-    END,
+    'status', 'IMPORTED',
     'contract', contract_name,
     'batch_rows', chain_count,
     'food_rows', food_count,
@@ -841,7 +1230,7 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
   WITH normalized AS (
     SELECT trim(
@@ -905,9 +1294,9 @@ AS $$
     c.created_at,
     c.updated_at,
     greatest(
-      similarity(lower(c.name), c.query),
-      similarity(lower(coalesce(c.brand, '')), c.query),
-      similarity(c.document, c.query)
+      extensions.similarity(lower(c.name), c.query),
+      extensions.similarity(lower(coalesce(c.brand, '')), c.query),
+      extensions.similarity(c.document, c.query)
     ) AS search_rank
   FROM candidates c
   WHERE NOT EXISTS (
@@ -924,7 +1313,10 @@ AS $$
   LIMIT least(greatest(result_limit, 1), 100);
 $$;
 
-GRANT EXECUTE ON FUNCTION search_global_foods(text, integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.search_global_foods(text, integer)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.search_global_foods(text, integer)
+  TO authenticated;
 
 COMMENT ON COLUMN foods.brand IS
   'User-visible manufacturer or restaurant name; nullable for unbranded custom foods.';

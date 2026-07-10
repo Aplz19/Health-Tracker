@@ -8,8 +8,24 @@
 
 BEGIN;
 
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
+
+DO $extension_check$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_extension extension
+    JOIN pg_catalog.pg_namespace namespace
+      ON namespace.oid = extension.extnamespace
+    WHERE extension.extname IN ('vector', 'pg_trgm')
+      AND namespace.nspname <> 'extensions'
+  ) THEN
+    RAISE EXCEPTION 'vector and pg_trgm must be installed in the trusted extensions schema';
+  END IF;
+END;
+$extension_check$;
 
 ALTER TABLE public.foods
   ADD COLUMN IF NOT EXISTS search_document text NOT NULL DEFAULT '',
@@ -171,7 +187,7 @@ CREATE INDEX IF NOT EXISTS foods_search_tsv_active_idx
   WHERE is_active IS TRUE;
 
 CREATE INDEX IF NOT EXISTS foods_search_document_trgm_active_idx
-  ON public.foods USING gin (search_document gin_trgm_ops)
+  ON public.foods USING gin (search_document extensions.gin_trgm_ops)
   WHERE is_active IS TRUE;
 
 -- The old IVFFlat index was trained with a fixed list count and cannot account
@@ -179,7 +195,7 @@ CREATE INDEX IF NOT EXISTS foods_search_document_trgm_active_idx
 -- catalog and can be built before the final catalog size is known.
 DROP INDEX IF EXISTS public.foods_embedding_idx;
 CREATE INDEX IF NOT EXISTS foods_embedding_hnsw_active_idx
-  ON public.foods USING hnsw (embedding vector_cosine_ops)
+  ON public.foods USING hnsw (embedding extensions.vector_cosine_ops)
   WITH (m = 16, ef_construction = 64)
   WHERE embedding IS NOT NULL AND is_active IS TRUE;
 
@@ -190,7 +206,7 @@ CREATE INDEX IF NOT EXISTS foods_embedding_hnsw_active_idx
 -- bonus, and auth.uid() is never accepted from caller input.
 CREATE OR REPLACE FUNCTION public.search_foods_hybrid(
   search_query text,
-  query_embedding vector(1536) DEFAULT NULL,
+  query_embedding extensions.vector(1536) DEFAULT NULL,
   embedding_model_param text DEFAULT NULL,
   result_limit integer DEFAULT 50
 )
@@ -264,15 +280,16 @@ AS $function$
           ELSE 0.0
         END
         + (4.0 * ts_rank_cd(f.search_tsv, plainto_tsquery('simple'::regconfig, p.query), 32))
-        + similarity(f.search_document, p.query)
+        + extensions.similarity(f.search_document, p.query)
       )::double precision AS lexical_score
     FROM public.foods f
     CROSS JOIN params p
     WHERE f.is_active IS TRUE
+      AND (f.source <> 'manual' OR f.created_by = auth.uid())
       AND length(p.query) >= 2
       AND (
         f.search_tsv @@ plainto_tsquery('simple'::regconfig, p.query)
-        OR f.search_document % p.query
+        OR f.search_document OPERATOR(extensions.%) p.query
       )
     ORDER BY lexical_score DESC, f.name, f.id
     LIMIT (SELECT candidate_count FROM params)
@@ -286,15 +303,16 @@ AS $function$
   semantic_nearest AS MATERIALIZED (
     SELECT
       f.id AS food_id,
-      (f.embedding <=> p.embedding)::double precision AS cosine_distance
+      (f.embedding OPERATOR(extensions.<=>) p.embedding)::double precision AS cosine_distance
     FROM public.foods f
     CROSS JOIN params p
     WHERE f.is_active IS TRUE
+      AND (f.source <> 'manual' OR f.created_by = auth.uid())
       AND p.embedding IS NOT NULL
       AND p.embedding_model IS NOT NULL
       AND f.embedding IS NOT NULL
       AND f.embedding_model = p.embedding_model
-    ORDER BY f.embedding <=> p.embedding
+    ORDER BY f.embedding OPERATOR(extensions.<=>) p.embedding
     LIMIT (SELECT candidate_count FROM params)
   ),
   semantic_ranked AS MATERIALIZED (
@@ -342,6 +360,7 @@ AS $function$
     FROM fused
     JOIN public.foods f ON f.id = fused.food_id
     WHERE f.is_active IS TRUE
+      AND (f.source <> 'manual' OR f.created_by = auth.uid())
   )
   SELECT
     scored.id,
@@ -390,9 +409,9 @@ AS $function$
   LIMIT (SELECT result_count FROM params);
 $function$;
 
-REVOKE ALL ON FUNCTION public.search_foods_hybrid(text, vector, text, integer)
+REVOKE ALL ON FUNCTION public.search_foods_hybrid(text, extensions.vector, text, integer)
   FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.search_foods_hybrid(text, vector, text, integer)
+GRANT EXECUTE ON FUNCTION public.search_foods_hybrid(text, extensions.vector, text, integer)
   TO authenticated;
 
 -- Atomic personal-library links. The caller cannot provide a user id, and the
@@ -414,7 +433,9 @@ BEGIN
 
   IF NOT EXISTS (
     SELECT 1 FROM public.foods
-    WHERE id = food_id_param AND is_active IS TRUE
+    WHERE id = food_id_param
+      AND is_active IS TRUE
+      AND (source <> 'manual' OR created_by = current_user_id)
   ) THEN
     RAISE EXCEPTION 'active food not found' USING ERRCODE = 'P0002';
   END IF;
@@ -643,14 +664,53 @@ CREATE POLICY foods_authenticated_read_v2
   ON public.foods
   FOR SELECT
   TO authenticated
-  USING (true);
+  USING (source <> 'manual' OR created_by = auth.uid());
+
+-- Restrictive guards are ANDed with every permissive legacy policy, so an
+-- unexpectedly retained policy cannot broaden manual-food visibility.
+DROP POLICY IF EXISTS foods_authenticated_visibility_guard_v2 ON public.foods;
+CREATE POLICY foods_authenticated_visibility_guard_v2
+  ON public.foods
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated
+  USING (source <> 'manual' OR created_by = auth.uid());
 
 DROP POLICY IF EXISTS user_food_library_own_read_v2 ON public.user_food_library;
+DROP POLICY IF EXISTS "Users can view own user_food_library"
+  ON public.user_food_library;
 CREATE POLICY user_food_library_own_read_v2
   ON public.user_food_library
   FOR SELECT
   TO authenticated
-  USING (user_id = auth.uid());
+  USING (
+    user_id = auth.uid()
+    AND EXISTS (
+      SELECT 1
+      FROM public.foods food
+      WHERE food.id = user_food_library.food_id
+        AND food.is_active IS TRUE
+        AND (food.source <> 'manual' OR food.created_by = auth.uid())
+    )
+  );
+
+DROP POLICY IF EXISTS user_food_library_active_guard_v2
+  ON public.user_food_library;
+CREATE POLICY user_food_library_active_guard_v2
+  ON public.user_food_library
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated
+  USING (
+    user_id = auth.uid()
+    AND EXISTS (
+      SELECT 1
+      FROM public.foods food
+      WHERE food.id = user_food_library.food_id
+        AND food.is_active IS TRUE
+        AND (food.source <> 'manual' OR food.created_by = auth.uid())
+    )
+  );
 
 DROP POLICY IF EXISTS "Anyone can insert foods" ON public.foods;
 REVOKE SELECT ON public.foods FROM anon;
@@ -669,7 +729,7 @@ COMMENT ON COLUMN public.foods.search_document IS
   'Stored normalized lexical document built from name, brand, aliases, variant, category, and serving.';
 COMMENT ON COLUMN public.foods.embedding_input_hash IS
   'SHA-256 of the canonical application embedding input; changes require a new vector.';
-COMMENT ON FUNCTION public.search_foods_hybrid(text, vector, text, integer) IS
+COMMENT ON FUNCTION public.search_foods_hybrid(text, extensions.vector, text, integer) IS
   'Active-food hybrid lexical/vector retrieval with RRF and auth.uid library tie-breaking.';
 COMMENT ON FUNCTION public.save_my_manual_food(uuid, jsonb) IS
   'Creates or updates only the caller-owned manual food fields and atomically links new rows.';

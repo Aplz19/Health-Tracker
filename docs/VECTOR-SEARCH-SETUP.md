@@ -21,6 +21,9 @@ Required server-only environment variables:
 ```env
 OPENAI_API_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
+CRON_SECRET=...
+RESTAURANT_IMPORT_SECRET=...
+RESTAURANT_IMPORT_ALLOWED_SHA256=...
 ```
 
 `OPENAI_API_KEY` is optional for ordinary search; without it the endpoint stays
@@ -41,10 +44,15 @@ Run through the Supabase SQL editor only after the rollout gate:
    npm run import-restaurant-foods -- <bundle-directory>
    ```
 
-5. Apply it only after the dry-run counts match the signed manifest:
+5. Apply it only after the dry-run counts and `rpc_payload_sha256` match the
+   reviewed, hash-declared manifest. Add that exact payload hash to Vercel's
+   `RESTAURANT_IMPORT_ALLOWED_SHA256` before deploying. Production uses the
+   Vercel bridge so the Supabase service-role key never leaves Vercel:
 
-   ```bash
-   npm run import-restaurant-foods -- <bundle-directory> --apply
+   ```powershell
+   $env:RESTAURANT_IMPORT_URL = "https://<production-domain>/api/admin/restaurant-import"
+   $env:RESTAURANT_IMPORT_SECRET = "<same-dedicated-secret-configured-in-vercel>"
+   npm run import-restaurant-foods -- <bundle-directory> --apply-via-vercel
    ```
 
 6. Verify the RPC's exact batch/food/provenance counts, active-version search,
@@ -70,19 +78,49 @@ call is one database transaction, so batches, foods, active-version changes, and
 provenance either all commit or all roll back. Exact replay is a zero-write
 `IDEMPOTENT_REPLAY`; hash/key collisions with different values fail closed.
 
+The Vercel transport route is intentionally narrower than the database RPC: it
+requires exact timing-safe bearer authorization, `application/json`, an honest
+`Content-Length`, no content encoding, and at most 4 MiB. It streams and counts
+the actual request bytes, requires their SHA-256 in the configured allowlist
+before parsing, does a shallow v1 contract/count check, then makes one RPC call.
+The bundle's unkeyed hashes detect change but are not signatures; bundle origin,
+the local collector, and transfer path must already be trusted. The dedicated
+import bearer plus exact-body allowlist is the production authorization layer.
+Split a payload over 4 MiB only at whole-chain batch boundaries. Each batch is a
+complete chain snapshot; splitting one chain would interpret omitted items as
+missing and deactivate them. The current combined three-chain payload and every
+individual per-chain payload fit the bridge. Direct local `--apply` is retained
+only for controlled rehearsals where the service-role key is already available
+locally.
+
+In contract v1, `content_hash` covers serving and the core mapped nutrients.
+Changes to grams, optional nutrients, or display metadata under the same source
+identity/hash fail the RPC's full-row collision check by design. Operators must
+not bypass that rejection as though it were an outage; evolve the contract to
+v2 and regenerate and revalidate the bundle.
+
 ## Generate and refresh embeddings
 
 After the SQL is applied, the restaurant import is verified, and current active
-food counts are correct:
+food counts are correct, use the bounded production bridge:
 
-```bash
-npm run generate-embeddings
+```powershell
+$embeddingUrl = "https://<production-domain>/api/admin/food-embeddings"
+do {
+  $result = Invoke-RestMethod -Method Post -Uri $embeddingUrl -Headers @{
+    Authorization = "Bearer $env:CRON_SECRET"
+  }
+  $result | ConvertTo-Json -Compress
+  if ($result.failed -gt 0) { throw "Embedding batch reported failures" }
+} while ($result.has_more)
 ```
 
-The backfill walks foods in stable ID pages, builds one canonical input from
-brand/name/aliases/variant/category/serving, hashes it, skips current rows,
-batches OpenAI requests, retries transient failures, limits update concurrency,
-and refuses to apply an embedding if the source text changed mid-request.
+Each call processes at most 100 active stale rows, builds one canonical input
+from brand/name/aliases/variant/category/serving, makes one batched OpenAI
+request, limits update concurrency to 10, and refuses to write when `updated_at`
+changed after selection. Its no-store response contains counts only. The local
+`npm run generate-embeddings` command remains available for rehearsals where
+OpenAI and service-role keys are intentionally present locally.
 
 Changing any embedding-input field clears the old vector through the database
 trigger. Rerun the command to fill only missing or stale rows.
@@ -120,16 +158,19 @@ confirm PostgreSQL selects the GIN and HNSW indexes.
 
 ## Rollback order
 
-Before a Vercel push, keep the database backup and record the imported batch
-keys. If post-import checks fail:
+Before a Vercel push, keep the dated database backup and record the imported
+batch keys. If post-import checks fail:
 
 1. Stop further imports and embedding generation.
-2. In one reviewed SQL transaction, deactivate active foods joined through only
-   those batch keys, then reactivate their non-null `supersedes_food_id` rows.
-3. Preserve the food, batch, and provenance rows for audit and any historical
-   `food_logs`; do not hard-delete catalog history.
-4. Re-run lexical/global-search checks. Revert and redeploy the application
-   commit separately if the failure is in code.
+2. Restore the dated pre-import backup using the tested Supabase recovery
+   process. Do not run ad-hoc activation, deletion, or personal-library SQL.
+3. A journal-driven alternative is permitted only after a separate rollback
+   procedure consumes both `food_import_transitions` and
+   `food_import_library_transitions`, proves complete state restoration, and is
+   rehearsed against a restored backup. Until then, backup restore is the only
+   supported data rollback.
+4. Re-run catalog/global-search and historical-log checks. Revert and redeploy
+   application code separately if the failure is in code.
 
 The restaurant-import and search-v2 scripts are explicitly transactional, so a
 failure while applying either rolls back that script. Apply the older vector

@@ -3,12 +3,21 @@ import { createServerClient } from "@supabase/ssr";
 
 // Paths that don't require authentication
 const publicPaths = ["/login", "/signup", "/api/auth", "/api/cron"];
+// This exact machine-to-machine endpoint performs its own timing-safe bearer
+// authentication. Do not make the broader /api/admin namespace public.
+const bearerProtectedPaths = new Set([
+  "/api/admin/food-embeddings",
+  "/api/admin/restaurant-import",
+]);
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths
-  if (publicPaths.some((path) => pathname.startsWith(path))) {
+  if (
+    bearerProtectedPaths.has(pathname) ||
+    publicPaths.some((path) => pathname.startsWith(path))
+  ) {
     return NextResponse.next();
   }
 

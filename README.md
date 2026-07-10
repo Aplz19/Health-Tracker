@@ -115,17 +115,25 @@ and search migrations are intentionally **staged and unapplied**. The app works
 against today's schema through compatibility paths; no Supabase change is
 required to ship the frontend/runtime improvements.
 
-After taking a database backup and completing a non-production rehearsal, use
-this production order. Do not push the frontend between steps 2 and 5:
+After taking a database backup and completing a non-production rehearsal, dry-run
+the approved bundle to obtain its `rpc_payload_sha256`. Configure Vercel
+Production with `RESTAURANT_IMPORT_SECRET`,
+`RESTAURANT_IMPORT_ALLOWED_SHA256=<that hash>`, `CRON_SECRET`,
+`SUPABASE_SERVICE_ROLE_KEY`, and `OPENAI_API_KEY`. Multiple approved payload
+hashes may be comma-separated. None of these secrets may use a `NEXT_PUBLIC_`
+prefix. Then run `npm run check`, push the reviewed code, wait for Vercel, and use
+this order without another frontend push until the post-import checks finish:
 
-1. `sql/add_vector_search.sql`
-2. `sql/add_restaurant_food_import.sql`
-3. `sql/add_food_search_v2.sql`
-4. `npm run import-restaurant-foods -- <bundle-directory>` (mandatory dry run)
-5. `npm run import-restaurant-foods -- <bundle-directory> --apply`
+1. Apply `sql/add_vector_search.sql`.
+2. Apply `sql/add_restaurant_food_import.sql`.
+3. Apply `sql/add_food_search_v2.sql`.
+4. Repeat `npm run import-restaurant-foods -- <bundle-directory>` and confirm
+   the counts and hash are unchanged.
+5. Use the Vercel bridge command below to import without placing the Supabase
+   service-role key on the collector/operator machine.
 6. Verify exact returned counts and search several imported foods.
-7. `npm run generate-embeddings`
-8. Run `npm run check`, then push the reviewed commit to deploy through Vercel.
+7. Run the bounded Vercel embedding loop below.
+8. Repeat authenticated food-search and food-log smoke tests in production.
 
 The v2 migration adds indexed hybrid search, safe manual/library RPCs, restricted
 catalog writes, and a guarded ownership backfill. Each legacy manual food is
@@ -151,23 +159,84 @@ npm run validate-restaurant-import -- <bundle-directory>
 The validator checks an exact schema, every declared SHA-256, clean PASS audits,
 row counts, nutrient/content hashes, active/version uniqueness, and one-to-one
 evidence links. It cannot write Supabase. The import command is also a dry run
-unless `--apply` is explicitly present; validation completes before it loads any
-credentials.
+unless an apply flag is explicitly present; validation completes before it loads
+any credentials. These unkeyed SHA-256 values detect changes but are not digital
+signatures or authentication: the workflow assumes a trusted local collector,
+bundle origin, and transfer path. The production bridge adds separate bearer
+authorization and an exact-body hash allowlist.
 
-With `--apply`, the CLI requires the server-only `SUPABASE_SERVICE_ROLE_KEY` and
-calls `import_restaurant_food_bundle` exactly once. That RPC is executable only
-by `service_role`, caps bundle/row sizes, rechecks the contract, and commits
-batches, immutable food versions, active-version transitions, and provenance in
-one transaction. Replaying the same bundle returns `IDEMPOTENT_REPLAY` with zero
-mutations. A changed value under an existing batch/version key is rejected.
+For production, keep only the Vercel endpoint and its dedicated import secret in
+the operator environment, then use the bridge mode:
 
-For an operational rollback after a successful import, first stop import jobs,
-then in one reviewed transaction deactivate only the affected batch's currently
-active food IDs and reactivate their non-null `supersedes_food_id` rows. Keep
-`food_import_batches`, `food_provenance`, and any food rows referenced by
-`food_logs`; those are the immutable audit/history trail. Roll back application
-code with a normal Git revert. Do not drop the new columns/tables from a live
-database as a routine rollback.
+```powershell
+$env:RESTAURANT_IMPORT_URL = "https://<production-domain>/api/admin/restaurant-import"
+$env:RESTAURANT_IMPORT_SECRET = "<same-dedicated-secret-configured-in-vercel>"
+npm run import-restaurant-foods -- <bundle-directory> --apply-via-vercel
+```
+
+`POST /api/admin/restaurant-import` accepts only an exact, timing-safe
+`Authorization: Bearer $RESTAURANT_IMPORT_SECRET` match and an uncompressed JSON
+body with a valid `Content-Length`. Before parsing, it hashes the exact received
+bytes and requires that digest in `RESTAURANT_IMPORT_ALLOWED_SHA256`. A leaked
+bearer can therefore replay only an explicitly approved payload, and exact replay
+is a zero-write database operation. Both declared and received body sizes are
+capped at 4 MiB. A larger multi-chain transfer may be split only at whole-chain
+batch boundaries: every batch is a complete chain snapshot, and splitting one
+chain would make omitted items look deleted and deactivate them. Today's
+combined three-chain payload fits, as do the individual per-chain payloads. The
+route never logs or returns the secret, hash, or request payload, disables
+caching, calls the service-role RPC exactly once, and returns only its result or
+a bounded public error.
+
+The direct `--apply` mode remains available for a controlled local rehearsal,
+but requires a local `SUPABASE_SERVICE_ROLE_KEY` and is not the production
+default. Both apply modes call `import_restaurant_food_bundle` exactly once.
+That RPC is executable only by `service_role`, caps bundle/row sizes, rechecks
+the contract, and commits batches, immutable food versions, active-version
+transitions, and provenance in one transaction. Replaying the same bundle
+returns `IDEMPOTENT_REPLAY` with zero mutations. A changed value under an
+existing batch/version key is rejected.
+
+Contract-v1 operator rule: `content_hash` covers serving and the core mapped
+nutrients. A change to grams, optional nutrients, or display metadata under the
+same source identity/hash is deliberately rejected by the full-row collision
+check. That rejection is not an outage to bypass; it requires a contract-v2
+definition and a regenerated, revalidated bundle.
+
+## Production embedding backfill
+
+The production embedding route uses the already-configured Vercel OpenAI and
+Supabase service-role keys. The operator machine needs only `CRON_SECRET`:
+
+```powershell
+$embeddingUrl = "https://<production-domain>/api/admin/food-embeddings"
+do {
+  $result = Invoke-RestMethod -Method Post -Uri $embeddingUrl -Headers @{
+    Authorization = "Bearer $env:CRON_SECRET"
+  }
+  $result | ConvertTo-Json -Compress
+  if ($result.failed -gt 0) { throw "Embedding batch reported failures" }
+} while ($result.has_more)
+```
+
+Each no-body POST selects at most 100 active foods missing current-model
+metadata, sends one batched OpenAI request, and updates with concurrency 10 plus
+an `updated_at` stale-write guard. Responses contain only
+`scanned/updated/changed/failed/has_more`; food names and vectors are never
+logged or returned. Canonical-field edits clear vector metadata through the SQL
+trigger, making the row eligible again. `npm run generate-embeddings` remains a
+local rehearsal tool when all three privileged keys are intentionally local.
+
+For an operational rollback after a successful import, stop imports and
+embedding generation, then restore the dated pre-import backup through the
+tested Supabase recovery process. Do not improvise food activation, deletion, or
+library-link SQL in production. The only alternative is a separately built and
+rehearsed journal-driven rollback that consumes both immutable
+`food_import_transitions` and `food_import_library_transitions`, verifies the
+complete post-rollback state, and has passed on a restored backup first. Until
+that procedure exists, backup restore is the supported data rollback. Revert
+application code separately with Git; do not drop live migration objects as a
+routine rollback.
 
 ## Development and verification
 
