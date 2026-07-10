@@ -115,19 +115,24 @@ and search migrations are intentionally **staged and unapplied**. The app works
 against today's schema through compatibility paths; no Supabase change is
 required to ship the frontend/runtime improvements.
 
-After the offline restaurant bundle is accepted and a non-production database
-test succeeds, apply in this order:
+After taking a database backup and completing a non-production rehearsal, use
+this production order. Do not push the frontend between steps 2 and 5:
 
 1. `sql/add_vector_search.sql`
 2. `sql/add_restaurant_food_import.sql`
 3. `sql/add_food_search_v2.sql`
-4. `npm run generate-embeddings`
+4. `npm run import-restaurant-foods -- <bundle-directory>` (mandatory dry run)
+5. `npm run import-restaurant-foods -- <bundle-directory> --apply`
+6. Verify exact returned counts and search several imported foods.
+7. `npm run generate-embeddings`
+8. Run `npm run check`, then push the reviewed commit to deploy through Vercel.
 
 The v2 migration adds indexed hybrid search, safe manual/library RPCs, restricted
-catalog writes, and a guarded ownership backfill. The backfill assigns existing
-manual foods only when exactly one auth user exists; it refuses to guess once
-there are multiple accounts. Configure `SUPABASE_SERVICE_ROLE_KEY` first so
-barcode persistence continues after direct catalog writes are revoked.
+catalog writes, and a guarded ownership backfill. Each legacy manual food is
+assigned only when its library links identify exactly one distinct user;
+ambiguous and unlinked rows stay unowned. Configure
+`SUPABASE_SERVICE_ROLE_KEY` first so barcode persistence and the restaurant
+importer continue after direct catalog writes are revoked.
 
 Restaurant refreshes insert a new immutable nutrient row, deactivate the prior
 version, and preserve historical `food_logs`. Provenance remains linked through
@@ -143,10 +148,26 @@ bundle without database access:
 npm run validate-restaurant-import -- <bundle-directory>
 ```
 
-The validator checks hashes, row counts, audit coverage, nutrient mappings,
-active/version uniqueness, and evidence links. It cannot write Supabase. The
-compatibility-safe search UI may ship independently, but do not apply the staged
-catalog/search migrations or import restaurant rows until this review passes.
+The validator checks an exact schema, every declared SHA-256, clean PASS audits,
+row counts, nutrient/content hashes, active/version uniqueness, and one-to-one
+evidence links. It cannot write Supabase. The import command is also a dry run
+unless `--apply` is explicitly present; validation completes before it loads any
+credentials.
+
+With `--apply`, the CLI requires the server-only `SUPABASE_SERVICE_ROLE_KEY` and
+calls `import_restaurant_food_bundle` exactly once. That RPC is executable only
+by `service_role`, caps bundle/row sizes, rechecks the contract, and commits
+batches, immutable food versions, active-version transitions, and provenance in
+one transaction. Replaying the same bundle returns `IDEMPOTENT_REPLAY` with zero
+mutations. A changed value under an existing batch/version key is rejected.
+
+For an operational rollback after a successful import, first stop import jobs,
+then in one reviewed transaction deactivate only the affected batch's currently
+active food IDs and reactivate their non-null `supersedes_food_id` rows. Keep
+`food_import_batches`, `food_provenance`, and any food rows referenced by
+`food_logs`; those are the immutable audit/history trail. Roll back application
+code with a normal Git revert. Do not drop the new columns/tables from a live
+database as a routine rollback.
 
 ## Development and verification
 

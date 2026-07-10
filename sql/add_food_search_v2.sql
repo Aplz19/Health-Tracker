@@ -19,30 +19,30 @@ ALTER TABLE public.foods
   ADD COLUMN IF NOT EXISTS embedding_updated_at timestamptz,
   ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL;
 
--- Alexandria records this deployment as single-user today. Preserve edit
--- access for that user's existing manual foods, but refuse to guess ownership
--- once more than one account exists.
+-- Infer legacy ownership per food, never from the account count. A manual food
+-- linked in exactly one distinct user's library has one defensible owner even
+-- when the project has multiple accounts. Ambiguous and unlinked rows stay NULL.
 DO $function$
 DECLARE
-  only_user_id uuid;
-  user_count integer;
+  assigned_count integer;
 BEGIN
-  SELECT count(*) INTO user_count FROM auth.users;
-  IF user_count = 1 THEN
-    SELECT id INTO only_user_id FROM auth.users LIMIT 1;
-    UPDATE public.foods AS food
-    SET created_by = only_user_id
-    WHERE food.source = 'manual'
-      AND food.created_by IS NULL
-      AND EXISTS (
-        SELECT 1
-        FROM public.user_food_library AS library
-        WHERE library.user_id = only_user_id
-          AND library.food_id = food.id
-      );
-  ELSE
-    RAISE NOTICE 'Skipped legacy manual-food ownership backfill: found % users', user_count;
-  END IF;
+  WITH unambiguous_library_owner AS (
+    SELECT
+      library.food_id,
+      min(library.user_id::text)::uuid AS owner_id
+    FROM public.user_food_library AS library
+    GROUP BY library.food_id
+    HAVING count(DISTINCT library.user_id) = 1
+  )
+  UPDATE public.foods AS food
+  SET created_by = owner.owner_id
+  FROM unambiguous_library_owner AS owner
+  WHERE food.id = owner.food_id
+    AND food.source = 'manual'
+    AND food.created_by IS NULL;
+
+  GET DIAGNOSTICS assigned_count = ROW_COUNT;
+  RAISE NOTICE 'Assigned % legacy manual foods from unambiguous library ownership', assigned_count;
 END;
 $function$;
 
@@ -456,9 +456,9 @@ $function$;
 -- Safe create/update contract for user-authored foods. Only an owner-created
 -- manual row can be changed; source, verification, version, and provenance
 -- fields are never accepted from JSON input. New foods are linked to the
--- caller's library in the same transaction. Existing manual rows intentionally
--- remain created_by = NULL; assign those rows in a separately reviewed ownership
--- backfill before users need to edit them through this RPC.
+-- caller's library in the same transaction. The migration assigns an existing
+-- manual row only when exactly one distinct user's library links to that food;
+-- ambiguous and unlinked legacy rows intentionally remain created_by = NULL.
 CREATE OR REPLACE FUNCTION public.save_my_manual_food(
   food_id_param uuid,
   food_input jsonb

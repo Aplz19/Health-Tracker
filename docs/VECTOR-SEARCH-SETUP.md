@@ -35,6 +35,20 @@ Run through the Supabase SQL editor only after the rollout gate:
 1. `sql/add_vector_search.sql`
 2. `sql/add_restaurant_food_import.sql`
 3. `sql/add_food_search_v2.sql`
+4. Dry-run the exact approved bundle:
+
+   ```bash
+   npm run import-restaurant-foods -- <bundle-directory>
+   ```
+
+5. Apply it only after the dry-run counts match the signed manifest:
+
+   ```bash
+   npm run import-restaurant-foods -- <bundle-directory> --apply
+   ```
+
+6. Verify the RPC's exact batch/food/provenance counts, active-version search,
+   and historical food-log stability before generating embeddings or deploying.
 
 The v2 migration adds:
 
@@ -44,14 +58,22 @@ The v2 migration adds:
 - reciprocal-rank-fusion search in `search_foods_hybrid`;
 - authenticated manual-food and library mutation RPCs;
 - restricted direct catalog writes and unique active OFF barcodes; and
-- an ownership backfill that runs only when exactly one auth user exists.
+- a per-food ownership backfill that assigns a legacy manual food only when its
+  library links contain exactly one distinct user.
 
 The application is migration-aware: it tries v2 RPCs first and falls back only
 when those functions do not exist.
 
+`import_restaurant_food_bundle(jsonb)` is a service-role-only security-definer
+RPC. It accepts at most 64 chains, 20,000 foods/provenance rows, and 64 MiB. One
+call is one database transaction, so batches, foods, active-version changes, and
+provenance either all commit or all roll back. Exact replay is a zero-write
+`IDEMPOTENT_REPLAY`; hash/key collisions with different values fail closed.
+
 ## Generate and refresh embeddings
 
-After the SQL is applied:
+After the SQL is applied, the restaurant import is verified, and current active
+food counts are correct:
 
 ```bash
 npm run generate-embeddings
@@ -95,3 +117,21 @@ Also test two-user RLS, inactive food versions, concurrent duplicate barcodes,
 and relevance fixtures such as `tacobell crunchwrap`, `taco bell crunchwrap`,
 and `in n out double double`. Use `EXPLAIN (ANALYZE, BUFFERS)` on a large seed to
 confirm PostgreSQL selects the GIN and HNSW indexes.
+
+## Rollback order
+
+Before a Vercel push, keep the database backup and record the imported batch
+keys. If post-import checks fail:
+
+1. Stop further imports and embedding generation.
+2. In one reviewed SQL transaction, deactivate active foods joined through only
+   those batch keys, then reactivate their non-null `supersedes_food_id` rows.
+3. Preserve the food, batch, and provenance rows for audit and any historical
+   `food_logs`; do not hard-delete catalog history.
+4. Re-run lexical/global-search checks. Revert and redeploy the application
+   commit separately if the failure is in code.
+
+The restaurant-import and search-v2 scripts are explicitly transactional, so a
+failure while applying either rolls back that script. Apply the older vector
+bootstrap as one reviewed SQL-editor operation. Once data is imported, dropping
+columns/tables is not a safe routine rollback.
