@@ -26,6 +26,24 @@ const MAX_QUERY_EMBEDDINGS = 100;
 const embeddingCache = new Map<string, EmbeddingCacheEntry>();
 let hybridRpcAvailable: boolean | null = null;
 
+export function buildLegacyFoodSearchFilters(
+  query: string,
+  includeBrand = true
+): string[] {
+  return query
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((term) =>
+      [
+        `name.ilike.%${term}%`,
+        ...(includeBrand
+          ? [`brand.ilike.%${term}%`, `brand_slug.ilike.%${term}%`]
+          : []),
+      ].join(",")
+    );
+}
+
 function isMissingFunction(error: { code?: string; message?: string } | null): boolean {
   return Boolean(
     error &&
@@ -81,12 +99,27 @@ async function legacySearch(
   query: string,
   limit: number
 ): Promise<Food[]> {
-  const terms = query.split(" ").filter(Boolean).slice(0, 8);
-  const filter = terms.map((term) => `name.ilike.%${term}%`).join(",");
-  let request = supabase.from("foods").select("*");
-  if (filter) request = request.or(filter);
+  const execute = (includeBrand: boolean) => {
+    let request = supabase.from("foods").select("*");
+    for (const filter of buildLegacyFoodSearchFilters(query, includeBrand)) {
+      // Each OR group handles one token; chaining groups keeps multi-token
+      // searches conjunctive while allowing the token in name or brand fields.
+      request = request.or(filter);
+    }
+    return request.limit(Math.min(limit * 3, 100));
+  };
 
-  const { data, error } = await request.limit(Math.min(limit * 3, 100));
+  let { data, error } = await execute(true);
+  const message = error?.message?.toLowerCase() ?? "";
+  if (
+    error &&
+    (error.code === "42703" ||
+      error.code === "PGRST204" ||
+      (message.includes("column") && message.includes("does not exist")) ||
+      message.includes("schema cache"))
+  ) {
+    ({ data, error } = await execute(false));
+  }
   if (error) throw error;
   return rankFoodSearchResults(normalizeRows(data as unknown[]), query).slice(0, limit);
 }

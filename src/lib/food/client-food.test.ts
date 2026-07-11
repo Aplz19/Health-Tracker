@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Food } from "@/lib/supabase/types";
-import { FOOD_CLIENT_COLUMNS, normalizeFood } from "./client-food";
+import {
+  FOOD_CLIENT_COLUMNS,
+  FOOD_CLIENT_V2_COLUMNS,
+  normalizeFood,
+} from "./client-food";
 
 test("normalizes a legacy row into the complete browser food contract", () => {
   const food = normalizeFood({
@@ -35,10 +39,13 @@ test("falls back safely when a legacy row has an unknown source", () => {
 });
 
 test("browser food projections never request the embedding vector", () => {
-  const columns = FOOD_CLIENT_COLUMNS.split(",").map((column) => column.trim());
+  const legacyColumns = FOOD_CLIENT_COLUMNS.split(",").map((column) => column.trim());
+  const currentColumns = FOOD_CLIENT_V2_COLUMNS.split(",").map((column) => column.trim());
 
-  assert.equal(columns.includes("embedding"), false);
-  assert.equal(columns.includes("id"), true);
-  assert.equal(columns.includes("name"), true);
-  assert.equal(columns.includes("calories"), true);
+  assert.equal(legacyColumns.includes("embedding"), false);
+  assert.equal(currentColumns.includes("embedding"), false);
+  assert.equal(currentColumns.includes("id"), true);
+  assert.equal(currentColumns.includes("name"), true);
+  assert.equal(currentColumns.includes("brand"), true);
+  assert.equal(currentColumns.includes("calories"), true);
 });

@@ -4,7 +4,9 @@ import { useState } from "react";
 import { FoodLibraryView } from "./food-library-view";
 import { AddFoodFormView } from "./add-food-form-view";
 import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
+import { useGlobalFoodSearch } from "@/hooks/use-global-food-search";
 import { cn } from "@/lib/utils";
+import type { Food } from "@/lib/supabase/types";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
 
 type PanelView = "library" | "add-form";
@@ -14,14 +16,49 @@ export function FoodPanel() {
   const [searchQuery, setSearchQuery] = useState("");
   const [editingFood, setEditingFood] = useState<LibraryFood | null>(null);
   const [formKey, setFormKey] = useState(0);
+  const [savingGlobalId, setSavingGlobalId] = useState<string | null>(null);
+  const [globalActionError, setGlobalActionError] = useState<string | null>(null);
 
   const {
     foods,
     isLoading,
     addToLibrary,
+    addExistingToLibrary,
     updateFood,
     removeFromLibrary,
   } = useUserFoodLibrary(searchQuery);
+  const {
+    foods: globalFoods,
+    searchedQuery,
+    isSearching: isSearchingGlobal,
+    error: globalSearchError,
+    searchGlobal,
+    clearGlobal,
+  } = useGlobalFoodSearch();
+
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+    setGlobalActionError(null);
+    clearGlobal();
+  };
+
+  const handleSearchAll = async () => {
+    if (!searchQuery.trim() || isSearchingGlobal) return;
+    await searchGlobal(searchQuery);
+  };
+
+  const handleSaveGlobal = async (food: Food) => {
+    if (savingGlobalId) return;
+    setSavingGlobalId(food.id);
+    setGlobalActionError(null);
+    try {
+      await addExistingToLibrary(food.id);
+    } catch (error) {
+      setGlobalActionError(error instanceof Error ? error.message : "Could not save food");
+    } finally {
+      setSavingGlobalId(null);
+    }
+  };
 
   const showAddForm = () => {
     setEditingFood(null);
@@ -98,9 +135,16 @@ export function FoodPanel() {
         <div className="w-1/2 h-full">
           <FoodLibraryView
             foods={foods}
+            globalFoods={globalFoods}
             isLoading={isLoading}
+            isSearchingGlobal={isSearchingGlobal}
+            searchedGlobally={Boolean(searchedQuery)}
+            globalError={globalActionError ?? globalSearchError}
+            savingGlobalId={savingGlobalId}
             searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
+            onSearchChange={handleSearchChange}
+            onSearchAll={handleSearchAll}
+            onSaveGlobal={handleSaveGlobal}
             onAddFood={showAddForm}
             onEditFood={showEditForm}
             onDeleteFood={handleDeleteFood}

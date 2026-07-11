@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { Food } from "@/lib/supabase/types";
@@ -9,9 +9,17 @@ interface FoodListItemProps<T extends Food = Food> {
   food: T;
   onEdit?: (food: T) => void;
   onDelete?: (id: string) => void;
+  onSave?: (food: T) => void;
+  isSaving?: boolean;
 }
 
-export function FoodListItem<T extends Food>({ food, onEdit, onDelete }: FoodListItemProps<T>) {
+export function FoodListItem<T extends Food>({
+  food,
+  onEdit,
+  onDelete,
+  onSave,
+  isSaving = false,
+}: FoodListItemProps<T>) {
   return (
     <Card className="p-3">
       <div className="flex items-start justify-between gap-2">
@@ -28,6 +36,23 @@ export function FoodListItem<T extends Food>({ food, onEdit, onDelete }: FoodLis
           </div>
         </div>
         <div className="flex gap-1">
+          {onSave && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-amber-500"
+              disabled={isSaving}
+              title="Add to your food library"
+              onClick={() => onSave(food)}
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Star className="h-4 w-4" />
+              )}
+              <span className="sr-only">Add {food.name} to your food library</span>
+            </Button>
+          )}
           {onEdit && (
             <Button
               variant="ghost"

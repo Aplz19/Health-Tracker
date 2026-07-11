@@ -5,6 +5,7 @@ import {
   normalizeFoodSearchQuery,
   rankFoodSearchResults,
 } from "@/lib/food/search-query";
+import { buildLegacyFoodSearchFilters } from "@/lib/food/server-search";
 
 function food(id: string, name: string, brand: string | null = null) {
   return normalizeFood({ id, name, brand, serving_size: "1 serving" });
@@ -13,6 +14,7 @@ function food(id: string, name: string, brand: string | null = null) {
 test("normalizes punctuation, apostrophes, accents, and whitespace", () => {
   assert.equal(normalizeFoodSearchQuery("  Dunkin’  Cold-Brew "), "dunkin cold brew");
   assert.equal(normalizeFoodSearchQuery("Crème brûlée"), "creme brulee");
+  assert.equal(normalizeFoodSearchQuery("'Chipotle\""), "chipotle");
 });
 
 test("preserves letters and numbers outside ASCII", () => {
@@ -30,4 +32,18 @@ test("ranks an exact brand and item phrase above partial matches", () => {
   );
 
   assert.equal(results[0].id, "exact");
+});
+
+test("legacy compatibility search includes brand fields", () => {
+  assert.deepEqual(
+    buildLegacyFoodSearchFilters("chipotle chicken"),
+    [
+      "name.ilike.%chipotle%,brand.ilike.%chipotle%,brand_slug.ilike.%chipotle%",
+      "name.ilike.%chicken%,brand.ilike.%chicken%,brand_slug.ilike.%chicken%",
+    ]
+  );
+  assert.deepEqual(
+    buildLegacyFoodSearchFilters("chipotle", false),
+    ["name.ilike.%chipotle%"]
+  );
 });

@@ -323,7 +323,7 @@ function FoodSearchResults({
         <section className="space-y-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
             <Database className="h-3 w-3" />
-            <span>Your Library</span>
+            <span>Your Library ({libraryFoods.length})</span>
           </div>
           {libraryFoods.map((food) => (
             <FoodResultCard key={food.id} food={food} onSelect={onSelect} />
@@ -331,29 +331,42 @@ function FoodSearchResults({
         </section>
       )}
 
-      {isSearchingGlobal && (
+      {isSearchingGlobal && globalFoods.length === 0 && (
         <div className="flex items-center justify-center py-6">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
           <p className="text-sm text-muted-foreground">Searching all foods...</p>
         </div>
       )}
 
-      {!isSearchingGlobal && searchedGlobally && (
+      {searchedGlobally && (!isSearchingGlobal || globalFoods.length > 0) && (
         <section className="space-y-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
             <Globe2 className="h-3 w-3" />
-            <span>Global Foods</span>
+            <span>Global Foods ({distinctGlobal.length})</span>
+            {isSearchingGlobal && (
+              <span className="ml-auto flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Refreshing
+              </span>
+            )}
           </div>
           {distinctGlobal.length > 0 ? (
-            distinctGlobal.map((food) => (
-              <FoodResultCard
-                key={food.id}
-                food={food}
-                onSelect={onSelect}
-                onSave={onSaveGlobal}
-                isSaving={savingGlobalId === food.id}
-              />
-            ))
+            <>
+              {distinctGlobal.map((food) => (
+                <FoodResultCard
+                  key={food.id}
+                  food={food}
+                  onSelect={onSelect}
+                  onSave={onSaveGlobal}
+                  isSaving={savingGlobalId === food.id}
+                />
+              ))}
+              {globalFoods.length >= 50 && (
+                <p className="px-1 pt-2 text-xs text-muted-foreground">
+                  Showing the top 50 matches. Add a menu item to narrow the search.
+                </p>
+              )}
+            </>
           ) : (
             <p className="py-5 text-center text-sm text-muted-foreground">
               No additional global foods found.
@@ -373,11 +386,13 @@ function FoodSearchResults({
         </div>
       )}
 
-      {searchQuery && libraryFoods.length === 0 && !searchedGlobally && !isSearchingGlobal && (
-        <div className="py-8 text-center">
-          <p className="text-sm text-muted-foreground">No match in your library.</p>
+      {searchQuery && !searchedGlobally && !isSearchingGlobal && (
+        <div className="py-4 text-center">
+          {libraryFoods.length === 0 && (
+            <p className="text-sm text-muted-foreground">No match in your library.</p>
+          )}
           <p className="text-xs text-muted-foreground mt-1">
-            Press Enter or the globe button to search all foods.
+            Press Enter or Search All for the global catalog.
           </p>
         </div>
       )}
@@ -801,7 +816,7 @@ export function FoodPickerDialog({
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search your foods..."
+                  placeholder="Search your library..."
                   value={searchQuery}
                   onChange={(e) => handleSearchQueryChange(e.target.value)}
                   onKeyDown={(event) => {
@@ -810,6 +825,7 @@ export function FoodPickerDialog({
                       handleGlobalSearch();
                     }
                   }}
+                  enterKeyHint="search"
                   className="pl-9"
                   autoFocus
                 />
@@ -817,10 +833,9 @@ export function FoodPickerDialog({
               <Button
                 type="button"
                 variant="outline"
-                size="icon"
                 onClick={handleGlobalSearch}
                 disabled={!searchQuery.trim() || isSearchingGlobal}
-                className="h-10 w-10 shrink-0"
+                className="h-10 shrink-0 px-3"
                 title="Search all foods"
               >
                 {isSearchingGlobal ? (
@@ -828,6 +843,7 @@ export function FoodPickerDialog({
                 ) : (
                   <Globe2 className="h-4 w-4" />
                 )}
+                <span className="ml-1.5">All</span>
               </Button>
               <Button
                 variant="outline"
@@ -867,7 +883,7 @@ export function FoodPickerDialog({
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search your foods..."
+                    placeholder="Search your library..."
                     value={searchQuery}
                     onChange={(e) => handleSearchQueryChange(e.target.value)}
                     onKeyDown={(event) => {
@@ -876,6 +892,7 @@ export function FoodPickerDialog({
                         handleGlobalSearch();
                       }
                     }}
+                    enterKeyHint="search"
                     className="pl-9"
                     autoFocus={activeTab === "foods"}
                   />
@@ -883,10 +900,9 @@ export function FoodPickerDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  size="icon"
                   onClick={handleGlobalSearch}
                   disabled={!searchQuery.trim() || isSearchingGlobal}
-                  className="h-10 w-10 shrink-0"
+                  className="h-10 shrink-0 px-3"
                   title="Search all foods"
                 >
                   {isSearchingGlobal ? (
@@ -894,6 +910,7 @@ export function FoodPickerDialog({
                   ) : (
                     <Globe2 className="h-4 w-4" />
                   )}
+                  <span className="ml-1.5">All</span>
                 </Button>
                 <Button
                   variant="outline"

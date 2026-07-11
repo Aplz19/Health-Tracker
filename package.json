@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
-    "test:unit": "tsx --test src/lib/client-cache.test.ts src/lib/embeddings/food-backfill.test.ts src/lib/food/client-food.test.ts src/lib/food/search-query.test.ts src/lib/restaurant-import/request.test.ts scripts/lib/restaurant-import-bundle.test.ts scripts/lib/sql-migration-contract.test.ts",
+    "test:unit": "tsx --test src/lib/client-cache.test.ts src/lib/embeddings/food-backfill.test.ts src/lib/food/client-food.test.ts src/lib/food/global-search-client.test.ts src/lib/food/search-query.test.ts src/lib/restaurant-import/request.test.ts scripts/lib/restaurant-import-bundle.test.ts scripts/lib/sql-migration-contract.test.ts",
     "check": "npm run lint && npm run test:unit && npm run typecheck && npm run build",
     "generate-icons": "node scripts/generate-icons.js",
     "generate-embeddings": "tsx scripts/generate-food-embeddings.ts",

@@ -50,19 +50,27 @@ docs/              operational setup notes
 
 ## Food discovery model
 
-The meal picker follows the intended personal-first interaction:
+Both the standalone Food Library and the meal picker follow the intended
+personal-first interaction:
 
 - Typing filters the session-cached personal library only. There is no network
   request per keystroke.
-- Enter or the globe button calls authenticated `GET /api/food/search`.
+- Enter or the visible **Search All** control calls authenticated
+  `GET /api/food/search`; the interface always explains this second stage even
+  when personal matches already exist.
 - The client aborts stale requests and accepts only the latest response.
 - Global results can be logged directly or starred into `user_food_library`.
-- Global query results use a bounded ten-minute cache.
+- A bounded ten-minute cache can paint recent global results immediately, but
+  every explicit search revalidates with `no-store` so a catalog rollout cannot
+  leave a live PWA session on stale results.
+- Result headings show personal/global counts. Global search returns the top 50
+  matches and tells the user to add a menu item to narrow a broader brand query.
 
 The server is upgrade-aware. It uses `search_foods_hybrid` when the v2 SQL is
-installed, the current lexical RPC during rollout, and a bounded legacy name
-search as a final compatibility path. It first probes capability without paying
-for an embedding, and remains lexical when `OPENAI_API_KEY` is absent.
+installed, the current lexical RPC during rollout, and a bounded legacy
+name/brand/brand-slug search as a final compatibility path. It first probes
+capability without paying for an embedding, and remains lexical when
+`OPENAI_API_KEY` is absent.
 
 The target v2 search in `sql/add_food_search_v2.sql` provides:
 

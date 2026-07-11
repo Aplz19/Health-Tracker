@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await searchFoodsServer(supabase, query);
     return NextResponse.json(result, {
-      headers: { "Cache-Control": "private, max-age=30" },
+      headers: { "Cache-Control": "private, no-store" },
     });
   } catch (error) {
     console.error("Global food search failed", error);

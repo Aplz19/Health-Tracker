@@ -1,16 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Search, Database, ScanBarcode, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, Search, Database, Globe2, ScanBarcode, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FoodList } from "./food-list";
+import { FoodListItem } from "./food-list-item";
 import dynamic from "next/dynamic";
 import { CreatePresetDialog } from "@/components/meals/create-preset-dialog";
 import { useSavedMealPresets, type SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
 import type { LibraryFood } from "@/hooks/use-user-food-library";
+import type { Food } from "@/lib/supabase/types";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
 
 // Barcode scanner pulls in quagga2 (large); load it only when first opened.
@@ -21,9 +23,16 @@ const BarcodeScanner = dynamic(
 
 interface FoodLibraryViewProps {
   foods: LibraryFood[];
+  globalFoods: Food[];
   isLoading: boolean;
+  isSearchingGlobal: boolean;
+  searchedGlobally: boolean;
+  globalError: string | null;
+  savingGlobalId: string | null;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  onSearchAll: () => void;
+  onSaveGlobal: (food: Food) => void;
   onAddFood: () => void;
   onEditFood: (food: LibraryFood) => void;
   onDeleteFood: (libraryId: string) => void;
@@ -32,9 +41,16 @@ interface FoodLibraryViewProps {
 
 export function FoodLibraryView({
   foods,
+  globalFoods,
   isLoading,
+  isSearchingGlobal,
+  searchedGlobally,
+  globalError,
+  savingGlobalId,
   searchQuery,
   onSearchChange,
+  onSearchAll,
+  onSaveGlobal,
   onAddFood,
   onEditFood,
   onDeleteFood,
@@ -45,6 +61,8 @@ export function FoodLibraryView({
   const [activeTab, setActiveTab] = useState<"foods" | "meals">("foods");
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [editingPreset, setEditingPreset] = useState<SavedMealPresetWithItems | null>(null);
+  const libraryIds = new Set(foods.map((food) => food.id));
+  const distinctGlobalFoods = globalFoods.filter((food) => !libraryIds.has(food.id));
 
   // Saved meal presets
   const {
@@ -119,17 +137,46 @@ export function FoodLibraryView({
                 Create Food
               </Button>
             </div>
-            <div className="flex gap-2">
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSearchAll();
+              }}
+            >
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search your foods..."
+                  placeholder="Search your library..."
                   value={searchQuery}
                   onChange={(e) => onSearchChange(e.target.value)}
+                  enterKeyHint="search"
                   className="pl-9 h-9"
                 />
               </div>
-            </div>
+              <Button
+                type="submit"
+                variant="outline"
+                disabled={!searchQuery.trim() || isSearchingGlobal}
+                className="h-9 shrink-0 px-3"
+                aria-label="Search all foods"
+              >
+                {isSearchingGlobal ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Globe2 className="h-4 w-4" />
+                )}
+                <span className="ml-1.5">Search All</span>
+              </Button>
+            </form>
+            {searchQuery && !searchedGlobally && !isSearchingGlobal && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing your library. Press Enter or Search All for the global catalog.
+              </p>
+            )}
+            {globalError && (
+              <p className="mt-2 text-xs text-destructive">{globalError}</p>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -138,7 +185,7 @@ export function FoodLibraryView({
               <div className="p-4 space-y-2">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Database className="h-3 w-3" />
-                  <span>Your Food Library</span>
+                  <span>Your Food Library ({foods.length})</span>
                 </div>
                 <FoodList
                   foods={foods}
@@ -162,9 +209,51 @@ export function FoodLibraryView({
 
             {/* No results in library */}
             {!isLoading && foods.length === 0 && searchQuery && (
-              <div className="p-8 text-center text-sm text-muted-foreground">
-                <p>No foods found for &ldquo;{searchQuery}&rdquo;</p>
-                <p className="mt-1">Try a different search or scan a barcode.</p>
+              <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                <p>No personal foods found for &ldquo;{searchQuery}&rdquo;</p>
+              </div>
+            )}
+
+            {isSearchingGlobal && globalFoods.length === 0 && (
+              <div className="flex items-center justify-center px-4 py-6 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Searching the global catalog...
+              </div>
+            )}
+
+            {searchedGlobally && (!isSearchingGlobal || globalFoods.length > 0) && (
+              <div className="border-t p-4 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Globe2 className="h-3 w-3" />
+                  <span>Global Foods ({distinctGlobalFoods.length})</span>
+                  {isSearchingGlobal && (
+                    <span className="ml-auto flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Refreshing
+                    </span>
+                  )}
+                </div>
+                {distinctGlobalFoods.length > 0 ? (
+                  <>
+                    {distinctGlobalFoods.map((food) => (
+                      <FoodListItem
+                        key={food.id}
+                        food={food}
+                        onSave={onSaveGlobal}
+                        isSaving={savingGlobalId === food.id}
+                      />
+                    ))}
+                    {globalFoods.length >= 50 && (
+                      <p className="px-1 pt-2 text-xs text-muted-foreground">
+                        Showing the top 50 matches. Add a menu item to narrow the search.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="py-4 text-center text-sm text-muted-foreground">
+                    No additional global foods found.
+                  </p>
+                )}
               </div>
             )}
           </div>

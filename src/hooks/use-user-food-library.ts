@@ -30,6 +30,20 @@ function isMissingRpc(error: { code?: string; message?: string } | null): boolea
   );
 }
 
+function isMissingV2FoodProjection(
+  error: { code?: string; message?: string } | null
+): boolean {
+  if (!error) return false;
+  const message = error.message?.toLowerCase() ?? "";
+  return (
+    error.code === "42703" ||
+    error.code === "PGRST200" ||
+    error.code === "PGRST204" ||
+    (message.includes("schema cache") && message.includes("foods")) ||
+    (message.includes("column") && message.includes("does not exist"))
+  );
+}
+
 function toManualFoodInput(food: Food | FoodInsert) {
   return {
     name: food.name,
@@ -120,16 +134,25 @@ export function useUserFoodLibrary(searchQuery: string = "") {
     try {
       if (!user) throw new Error("Not authenticated");
 
-      // Query user's food library joined with foods table
-      const { data, error } = await supabase
-        .from("user_food_library")
-        .select(`
-          id,
-          added_at,
-          food:foods (${FOOD_CLIENT_COLUMNS})
-        `)
-        .eq("user_id", user.id)
-        .order("added_at", { ascending: false });
+      const fetchRows = (foodColumns: string) =>
+        supabase
+          .from("user_food_library")
+          .select(`
+            id,
+            added_at,
+            food:foods (${foodColumns})
+          `)
+          .eq("user_id", user.id)
+          .order("added_at", { ascending: false });
+
+      // Current production includes structured brand/alias fields so a saved
+      // restaurant item remains searchable by chain. Keep one bounded legacy
+      // retry for an environment that has not applied the v2 migration yet.
+      let response = await fetchRows(FOOD_CLIENT_V2_COLUMNS);
+      if (response.error && isMissingV2FoodProjection(response.error)) {
+        response = await fetchRows(FOOD_CLIENT_COLUMNS);
+      }
+      const { data, error } = response;
 
       if (error) throw error;
 
