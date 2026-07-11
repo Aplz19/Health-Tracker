@@ -436,7 +436,9 @@ BEGIN
     source_category text,
     variant_label text,
     serving_size text NOT NULL,
-    serving_size_grams numeric,
+    -- Match foods.serving_size_grams numeric(10,2) before immutable replay
+    -- comparisons so database scale canonicalization is deterministic.
+    serving_size_grams numeric(10,2),
     calories numeric NOT NULL,
     protein numeric NOT NULL,
     total_fat numeric NOT NULL,
@@ -503,7 +505,7 @@ BEGIN
     source_category text,
     variant_label text,
     serving_size text,
-    serving_size_grams numeric,
+    serving_size_grams numeric(10,2),
     calories numeric,
     protein numeric,
     total_fat numeric,
@@ -734,6 +736,8 @@ BEGIN
   END IF;
 
   -- Existing immutable keys must mean the exact same audited batch/version.
+  -- Supplemental values are compared after normalization to their live
+  -- persistence domains (notably serving_size_grams numeric(10,2)).
   IF EXISTS (
     SELECT 1
     FROM public.food_import_batches existing

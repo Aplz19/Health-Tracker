@@ -88,6 +88,11 @@ test("extension-backed operators and opclasses are schema-qualified and asserted
 test("new chain snapshots are unique, monotonic, clock-bounded, and replay-first", () => {
   const sql = migration("add_restaurant_food_import.sql");
   assert.match(sql, /UNIQUE \(chain\)/);
+  assert.equal(
+    [...sql.matchAll(/^\s+serving_size_grams numeric\(10,\s*2\),/gm)].length,
+    2,
+    "serving grams must be canonicalized to the live foods column scale before replay comparison",
+  );
   assert.match(sql, /approved_at > transaction_timestamp\(\) \+ interval '10 minutes'/);
   assert.match(sql, /incoming\.approved_at <= coalesce\(\([\s\S]*max\(existing\.approved_at\)/);
   const replay = sql.indexOf("A complete exact replay is a zero-write result");

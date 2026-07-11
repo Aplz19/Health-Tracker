@@ -110,19 +110,34 @@ filter already-loaded personal data with `useMemo`.
 
 ## Database rollout
 
-SQL files are applied manually through the Supabase SQL editor. The restaurant
-and search migrations are intentionally **staged and unapplied**. The app works
-against today's schema through compatibility paths; no Supabase change is
-required to ship the frontend/runtime improvements.
+SQL files are applied manually through the Supabase SQL editor. Production was
+migrated on 2026-07-10 after a locked snapshot was captured in
+`rollout_backup_20260710_1823`. The snapshot preserved 90 foods, 456 food logs,
+90 personal-library links, 28 saved-meal item links, and the prior database
+metadata. The three reviewed bundles then added 123 Chipotle, 147 Qdoba, and
+515 Taco Bell foods: 785 active restaurant foods with 785 provenance rows.
+Exact replays of all three bundles return `IDEMPOTENT_REPLAY` with zero writes,
+and the pre-existing user-data counts remain unchanged.
 
-After taking a database backup and completing a non-production rehearsal, dry-run
-the approved bundle to obtain its `rpc_payload_sha256`. Configure Vercel
+The OpenAI project key currently deployed by Vercel does not have access to
+`text-embedding-3-small`, so the 2026-07-10 embedding backfill stopped before
+writing any vectors. Production search remains available through the indexed
+lexical side of the hybrid RPC. Do not treat embeddings as complete until model
+access is enabled and the bounded backfill below finishes without failures.
+
+For a fresh environment, take a database backup and complete a non-production
+rehearsal before applying the three SQL files in the order below. For subsequent
+whole-chain snapshots, the migrations are already present: begin at the dry run,
+add only the reviewed payload hash, and import through the bridge.
+
+Dry-run the approved bundle to obtain its `rpc_payload_sha256`. Configure Vercel
 Production with `RESTAURANT_IMPORT_SECRET`,
 `RESTAURANT_IMPORT_ALLOWED_SHA256=<that hash>`, `CRON_SECRET`,
 `SUPABASE_SERVICE_ROLE_KEY`, and `OPENAI_API_KEY`. Multiple approved payload
 hashes may be comma-separated. None of these secrets may use a `NEXT_PUBLIC_`
-prefix. Then run `npm run check`, push the reviewed code, wait for Vercel, and use
-this order without another frontend push until the post-import checks finish:
+prefix. Then run `npm run check`, push the reviewed code, wait for Vercel, and
+use this fresh-environment order without another frontend push until the
+post-import checks finish:
 
 1. Apply `sql/add_vector_search.sql`.
 2. Apply `sql/add_restaurant_food_import.sql`.
@@ -201,7 +216,11 @@ Contract-v1 operator rule: `content_hash` covers serving and the core mapped
 nutrients. A change to grams, optional nutrients, or display metadata under the
 same source identity/hash is deliberately rejected by the full-row collision
 check. That rejection is not an outage to bypass; it requires a contract-v2
-definition and a regenerated, revalidated bundle.
+definition and a regenerated, revalidated bundle. `serving_size_grams` is
+canonicalized to the live `numeric(10,2)` storage domain before immutable replay
+comparison. Sub-0.01 g precision is intentionally outside the catalog's serving
+conversion column; retain the approved transfer bundle as the exact source
+artifact.
 
 ## Production embedding backfill
 

@@ -97,7 +97,9 @@ In contract v1, `content_hash` covers serving and the core mapped nutrients.
 Changes to grams, optional nutrients, or display metadata under the same source
 identity/hash fail the RPC's full-row collision check by design. Operators must
 not bypass that rejection as though it were an outage; evolve the contract to
-v2 and regenerate and revalidate the bundle.
+v2 and regenerate and revalidate the bundle. The receiver first canonicalizes
+`serving_size_grams` to the live `numeric(10,2)` persistence domain so exact
+replays compare against the value PostgreSQL actually stores.
 
 ## Generate and refresh embeddings
 
