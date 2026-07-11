@@ -128,16 +128,29 @@ Taco Bell foods.
 Before the 2026-07-11 catalog expansion, a second locked snapshot was captured
 in `rollout_backup_20260711_0031`: 875 foods, 456 food logs, 90 personal-library
 links, 28 saved-meal item links, three import batches, 785 provenance rows, and
-785 import transitions. The completed expansion and correction rollout now has
+785 import transitions. That expansion and correction rollout produced
 1,912 active restaurant foods across eight brands: 192 Arby's, 244 Burger King,
 332 Chick-fil-A, 119 Chipotle, 325 Dairy Queen, 41 Five Guys, 144 Qdoba, and 515
 Taco Bell. Ten immutable import batches retain 2,182 provenance rows and 2,189
 transition rows. Seven excluded Chipotle/Qdoba rows are deliberately
 quarantined as inactive, so they remain available to historical references but
-cannot appear in active global search. Exact replays of all ten accepted bundles
-return `IDEMPOTENT_REPLAY` with zero writes; historical food logs and saved-meal
-items remain unchanged, while any personal-library link to a quarantined row is
-removed and journaled by the importer.
+cannot appear in active global search.
+
+Immediately before the Red Robin import, the locked
+`rollout_backup_20260711_red_robin_420` snapshot preserved 2,016 foods: 1,919
+restaurant versions (1,912 active and seven inactive), 468 food logs, 97
+personal-library links, 28 saved-meal item links, ten import batches, 2,182
+provenance rows, and 2,189 import transitions. The approved 420-row Red Robin
+bridge payload was 2,344,865 bytes with
+`rpc_payload_sha256=eef9bd7c12afe24ba96637258fff32f40568a3905f084aac0294d6fdea7b1647`.
+After import, production contains 2,436 foods: 2,339 restaurant versions with
+2,332 active foods across nine brands, including 420 Red Robin foods, and seven
+inactive quarantined rows. Eleven immutable import batches retain 2,602
+provenance rows and 2,609 transition rows; food logs, personal-library links,
+and saved-meal item links remain unchanged from the locked snapshot. Exact
+replays of all eleven accepted bundles return `IDEMPOTENT_REPLAY` with zero
+writes. Any personal-library link to a quarantined row is removed and journaled
+by the importer.
 
 Embedding generation is deliberately deferred for this rollout. Production
 search remains available through the indexed lexical side of the hybrid RPC.
@@ -168,6 +181,8 @@ post-import checks finish:
 6. Verify exact returned counts and search several imported foods.
 7. Run the bounded Vercel embedding loop below.
 8. Repeat authenticated food-search and food-log smoke tests in production.
+9. Remove `RESTAURANT_IMPORT_ALLOWED_SHA256` and redeploy so the bridge returns
+   unavailable outside a reviewed, one-payload import window.
 
 The v2 migration adds indexed hybrid search, safe manual/library RPCs, restricted
 catalog writes, and a guarded ownership backfill. Each legacy manual food is
@@ -216,7 +231,7 @@ bearer can therefore replay only an explicitly approved payload, and exact repla
 is a zero-write database operation. Both declared and received body sizes are
 capped at 4 MiB. A larger multi-chain transfer may be split only at whole-chain
 batch boundaries: every batch is a complete chain snapshot, and splitting one
-chain would make omitted items look deleted and deactivate them. All ten
+chain would make omitted items look deleted and deactivate them. All eleven
 accepted per-chain batch payloads fit individually. The route never logs or
 returns the secret, hash, or request payload, disables caching, calls the
 service-role RPC exactly once, and returns only its result or a bounded public
