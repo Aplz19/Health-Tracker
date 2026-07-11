@@ -11,10 +11,18 @@ when the user presses Enter or taps the globe button.
 
 ## Safety and rollout state
 
-`sql/add_food_search_v2.sql` is staged and has **not** been applied. It assumes
-`add_vector_search.sql` and `add_restaurant_food_import.sql` have already run.
-Do not apply the catalog migrations until the offline restaurant bundle passes
-review and the SQL has been tested against a non-production backup.
+Production has all three migrations applied as of 2026-07-10. The first rollout
+was preceded by `rollout_backup_20260710_1823`; the 2026-07-11 catalog expansion
+was preceded by `rollout_backup_20260711_0031`. Production search currently uses
+the indexed lexical side of the hybrid RPC because the embedding backfill is
+deliberately deferred. The current catalog contains 1,912 active restaurant rows
+across eight brands: 192 Arby's, 244 Burger King, 332 Chick-fil-A, 119 Chipotle,
+325 Dairy Queen, 41 Five Guys, 144 Qdoba, and 515 Taco Bell. Ten immutable import
+batches retain 2,182 provenance rows and 2,189 transition rows. Seven rejected
+Chipotle/Qdoba rows remain deliberately quarantined as inactive historical
+versions and are excluded from global search. In a fresh environment, do not
+apply the catalog migrations until the offline restaurant bundle passes review
+and the SQL has been tested against a non-production backup.
 
 Required server-only environment variables:
 
@@ -33,7 +41,8 @@ catalog writes are revoked. Neither key may use a `NEXT_PUBLIC_` prefix.
 
 ## Migration order
 
-Run through the Supabase SQL editor only after the rollout gate:
+For a fresh environment, run through the Supabase SQL editor only after the
+rollout gate. Production already has these migrations:
 
 1. `sql/add_vector_search.sql`
 2. `sql/add_restaurant_food_import.sql`
@@ -88,8 +97,8 @@ the local collector, and transfer path must already be trusted. The dedicated
 import bearer plus exact-body allowlist is the production authorization layer.
 Split a payload over 4 MiB only at whole-chain batch boundaries. Each batch is a
 complete chain snapshot; splitting one chain would interpret omitted items as
-missing and deactivate them. The current combined three-chain payload and every
-individual per-chain payload fit the bridge. Direct local `--apply` is retained
+missing and deactivate them. All ten accepted per-chain batch payloads fit the
+bridge. Direct local `--apply` is retained
 only for controlled rehearsals where the service-role key is already available
 locally.
 

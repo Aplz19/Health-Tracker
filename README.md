@@ -114,16 +114,27 @@ SQL files are applied manually through the Supabase SQL editor. Production was
 migrated on 2026-07-10 after a locked snapshot was captured in
 `rollout_backup_20260710_1823`. The snapshot preserved 90 foods, 456 food logs,
 90 personal-library links, 28 saved-meal item links, and the prior database
-metadata. The three reviewed bundles then added 123 Chipotle, 147 Qdoba, and
-515 Taco Bell foods: 785 active restaurant foods with 785 provenance rows.
-Exact replays of all three bundles return `IDEMPOTENT_REPLAY` with zero writes,
-and the pre-existing user-data counts remain unchanged.
+metadata. Three reviewed bundles then added 123 Chipotle, 147 Qdoba, and 515
+Taco Bell foods.
 
-The OpenAI project key currently deployed by Vercel does not have access to
-`text-embedding-3-small`, so the 2026-07-10 embedding backfill stopped before
-writing any vectors. Production search remains available through the indexed
-lexical side of the hybrid RPC. Do not treat embeddings as complete until model
-access is enabled and the bounded backfill below finishes without failures.
+Before the 2026-07-11 catalog expansion, a second locked snapshot was captured
+in `rollout_backup_20260711_0031`: 875 foods, 456 food logs, 90 personal-library
+links, 28 saved-meal item links, three import batches, 785 provenance rows, and
+785 import transitions. The completed expansion and correction rollout now has
+1,912 active restaurant foods across eight brands: 192 Arby's, 244 Burger King,
+332 Chick-fil-A, 119 Chipotle, 325 Dairy Queen, 41 Five Guys, 144 Qdoba, and 515
+Taco Bell. Ten immutable import batches retain 2,182 provenance rows and 2,189
+transition rows. Seven excluded Chipotle/Qdoba rows are deliberately
+quarantined as inactive, so they remain available to historical references but
+cannot appear in active global search. Exact replays of all ten accepted bundles
+return `IDEMPOTENT_REPLAY` with zero writes; historical food logs and saved-meal
+items remain unchanged, while any personal-library link to a quarantined row is
+removed and journaled by the importer.
+
+Embedding generation is deliberately deferred for this rollout. Production
+search remains available through the indexed lexical side of the hybrid RPC.
+Do not treat embeddings as complete until the bounded backfill below is
+intentionally resumed and finishes without failures.
 
 For a fresh environment, take a database backup and complete a non-production
 rehearsal before applying the three SQL files in the order below. For subsequent
@@ -197,11 +208,11 @@ bearer can therefore replay only an explicitly approved payload, and exact repla
 is a zero-write database operation. Both declared and received body sizes are
 capped at 4 MiB. A larger multi-chain transfer may be split only at whole-chain
 batch boundaries: every batch is a complete chain snapshot, and splitting one
-chain would make omitted items look deleted and deactivate them. Today's
-combined three-chain payload fits, as do the individual per-chain payloads. The
-route never logs or returns the secret, hash, or request payload, disables
-caching, calls the service-role RPC exactly once, and returns only its result or
-a bounded public error.
+chain would make omitted items look deleted and deactivate them. All ten
+accepted per-chain batch payloads fit individually. The route never logs or
+returns the secret, hash, or request payload, disables caching, calls the
+service-role RPC exactly once, and returns only its result or a bounded public
+error.
 
 The direct `--apply` mode remains available for a controlled local rehearsal,
 but requires a local `SUPABASE_SERVICE_ROLE_KEY` and is not the production
