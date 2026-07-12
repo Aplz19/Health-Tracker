@@ -4,16 +4,24 @@ import { normalizeFood } from "@/lib/food/client-food";
 import { normalizeFoodSearchQuery, rankFoodSearchResults } from "@/lib/food/search-query";
 import type { Food } from "@/lib/supabase/types";
 
-export type FoodSearchMode = "hybrid" | "lexical" | "legacy";
+export type FoodSearchMode = "v4" | "hybrid" | "lexical" | "legacy";
 
 export interface FoodSearchResponse {
   foods: Food[];
   mode: FoodSearchMode;
+  /** Exact match count when the v4 RPC is available; null on legacy fallbacks. */
+  totalCount: number | null;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
 }
 
 interface SearchOptions {
   limit?: number;
+  offset?: number;
   useSemantic?: boolean;
+  /** Omit foods already saved by the current user (global-search UI only). */
+  excludeLibrary?: boolean;
 }
 
 interface EmbeddingCacheEntry {
@@ -24,6 +32,7 @@ interface EmbeddingCacheEntry {
 const QUERY_EMBEDDING_TTL_MS = 15 * 60 * 1_000;
 const MAX_QUERY_EMBEDDINGS = 100;
 const embeddingCache = new Map<string, EmbeddingCacheEntry>();
+let v4RpcAvailable: boolean | null = null;
 let hybridRpcAvailable: boolean | null = null;
 
 export function buildLegacyFoodSearchFilters(
@@ -53,7 +62,12 @@ function isMissingFunction(error: { code?: string; message?: string } | null): b
 }
 
 async function getQueryEmbedding(query: string): Promise<number[] | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
+  if (
+    process.env.FOOD_SEMANTIC_SEARCH_ENABLED !== "true" ||
+    !process.env.OPENAI_API_KEY
+  ) {
+    return null;
+  }
 
   const cached = embeddingCache.get(query);
   if (cached && cached.expiresAt > Date.now()) {
@@ -92,6 +106,30 @@ function normalizeRows(rows: unknown[] | null): Food[] {
       );
     })
     .map(normalizeFood);
+}
+
+function readTotalCount(rows: unknown[] | null, offset: number): number | null {
+  if (!rows?.length) return offset === 0 ? 0 : null;
+  const value = (rows[0] as Record<string, unknown>).total_count;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function response(
+  foods: Food[],
+  mode: FoodSearchMode,
+  limit: number,
+  offset: number,
+  totalCount: number | null
+): FoodSearchResponse {
+  return {
+    foods,
+    mode,
+    totalCount,
+    offset,
+    limit,
+    hasMore: totalCount !== null && offset + foods.length < totalCount,
+  };
 }
 
 async function legacySearch(
@@ -135,9 +173,61 @@ export async function searchFoodsServer(
   options: SearchOptions = {}
 ): Promise<FoodSearchResponse> {
   const query = normalizeFoodSearchQuery(rawQuery);
-  if (query.length < 2) return { foods: [], mode: "legacy" };
+  const limit = Math.max(1, Math.min(Math.trunc(options.limit ?? 50), 50));
+  const offset = Math.max(0, Math.min(Math.trunc(options.offset ?? 0), 5_000));
+  const semanticEnabled =
+    options.useSemantic !== false &&
+    process.env.FOOD_SEMANTIC_SEARCH_ENABLED === "true" &&
+    Boolean(process.env.OPENAI_API_KEY);
+  if (query.length < 2) return response([], "legacy", limit, offset, 0);
 
-  const limit = Math.max(1, Math.min(options.limit ?? 50, 50));
+  if (v4RpcAvailable !== false) {
+    const callV4 = (embedding: number[] | null) =>
+      supabase.rpc("search_foods_v4", {
+        search_query: query,
+        query_embedding: embedding,
+        embedding_model_param: embedding ? FOOD_EMBEDDING_MODEL : null,
+        result_limit: limit,
+        result_offset: offset,
+        exclude_library_param: options.excludeLibrary ?? false,
+      });
+
+    // Probe without an embedding so capability detection never incurs an API
+    // charge. That result is also the lexical response when semantics are off.
+    if (v4RpcAvailable === null) {
+      const probe = await callV4(null);
+      if (!probe.error) {
+        v4RpcAvailable = true;
+        if (!semanticEnabled) {
+          const rows = probe.data as unknown[];
+          const foods = normalizeRows(rows);
+          return response(foods, "v4", limit, offset, readTotalCount(rows, offset));
+        }
+      } else if (isMissingFunction(probe.error)) {
+        v4RpcAvailable = false;
+      } else {
+        console.warn("Food search v4 probe failed; trying compatibility search", probe.error);
+      }
+    }
+
+    if (v4RpcAvailable) {
+      const embedding = semanticEnabled ? await getQueryEmbedding(query) : null;
+      const { data: v4Data, error: v4Error } = await callV4(embedding);
+      if (!v4Error) {
+        const rows = v4Data as unknown[];
+        const foods = normalizeRows(rows);
+        return response(foods, "v4", limit, offset, readTotalCount(rows, offset));
+      }
+      if (isMissingFunction(v4Error)) v4RpcAvailable = false;
+      else console.warn("Food search v4 failed; trying compatibility search", v4Error);
+    }
+  }
+
+  // Older RPCs do not expose a stable result offset or exact total. They stay
+  // available for zero-downtime deploys, but pagination is enabled only once
+  // v4 has answered successfully.
+  if (offset > 0) return response([], "legacy", limit, offset, null);
+
   if (hybridRpcAvailable !== false) {
     // Probe a not-yet-known deployment without spending an embedding token.
     // Once the RPC is confirmed, this process remembers the capability.
@@ -150,11 +240,14 @@ export async function searchFoodsServer(
       });
       if (!probe.error) {
         hybridRpcAvailable = true;
-        if (options.useSemantic === false || !process.env.OPENAI_API_KEY) {
-          return {
-            foods: normalizeRows(probe.data as unknown[]),
-            mode: "hybrid",
-          };
+        if (!semanticEnabled) {
+          return response(
+            normalizeRows(probe.data as unknown[]),
+            "hybrid",
+            limit,
+            offset,
+            null
+          );
         }
       } else if (isMissingFunction(probe.error)) {
         hybridRpcAvailable = false;
@@ -164,7 +257,7 @@ export async function searchFoodsServer(
     }
 
     if (hybridRpcAvailable) {
-      const embedding = options.useSemantic === false ? null : await getQueryEmbedding(query);
+      const embedding = semanticEnabled ? await getQueryEmbedding(query) : null;
       const { data: hybridData, error: hybridError } = await supabase.rpc(
         "search_foods_hybrid",
         {
@@ -175,12 +268,15 @@ export async function searchFoodsServer(
         }
       );
       if (!hybridError) {
-        return {
-          // The SQL RPC has already fused lexical and semantic ranks. Preserve
-          // that order so a client-side lexical sort cannot erase semantics.
-          foods: normalizeRows(hybridData as unknown[]),
-          mode: "hybrid",
-        };
+        // The SQL RPC has already fused lexical and semantic ranks. Preserve
+        // that order so a client-side lexical sort cannot erase semantics.
+        return response(
+          normalizeRows(hybridData as unknown[]),
+          "hybrid",
+          limit,
+          offset,
+          null
+        );
       }
       if (isMissingFunction(hybridError)) hybridRpcAvailable = false;
       else console.warn("Hybrid food search failed; trying compatibility search", hybridError);
@@ -192,14 +288,23 @@ export async function searchFoodsServer(
     { search_query: query, result_limit: limit }
   );
   if (!lexicalError) {
-    return {
-      foods: rankFoodSearchResults(normalizeRows(lexicalData as unknown[]), query),
-      mode: "lexical",
-    };
+    return response(
+      rankFoodSearchResults(normalizeRows(lexicalData as unknown[]), query),
+      "lexical",
+      limit,
+      offset,
+      null
+    );
   }
   if (!isMissingFunction(lexicalError)) {
     console.warn("Lexical food search RPC failed; using legacy search", lexicalError);
   }
 
-  return { foods: await legacySearch(supabase, query, limit), mode: "legacy" };
+  return response(
+    await legacySearch(supabase, query, limit),
+    "legacy",
+    limit,
+    offset,
+    null
+  );
 }

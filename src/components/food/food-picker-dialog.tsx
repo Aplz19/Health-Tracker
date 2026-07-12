@@ -289,25 +289,33 @@ function FoodResultCard({
 function FoodSearchResults({
   libraryFoods,
   globalFoods,
+  globalTotalCount,
+  hasMoreGlobal,
   isLoadingLibrary,
   isSearchingGlobal,
+  isLoadingMoreGlobal,
   globalError,
   searchQuery,
   searchedGlobally,
   savingGlobalId,
   onSelect,
   onSaveGlobal,
+  onLoadMoreGlobal,
 }: {
   libraryFoods: LibraryFood[];
   globalFoods: Food[];
+  globalTotalCount: number | null;
+  hasMoreGlobal: boolean;
   isLoadingLibrary: boolean;
   isSearchingGlobal: boolean;
+  isLoadingMoreGlobal: boolean;
   globalError: string | null;
   searchQuery: string;
   searchedGlobally: boolean;
   savingGlobalId: string | null;
   onSelect: (food: Food) => void;
   onSaveGlobal: (food: Food) => void;
+  onLoadMoreGlobal: () => void;
 }) {
   const libraryIds = new Set(libraryFoods.map((food) => food.id));
   const distinctGlobal = globalFoods.filter((food) => !libraryIds.has(food.id));
@@ -346,7 +354,11 @@ function FoodSearchResults({
         <section className="space-y-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
             <Globe2 className="h-3 w-3" />
-            <span>Global results shown ({distinctGlobal.length})</span>
+            <span>
+              {globalTotalCount === null
+                ? `Global results shown (${distinctGlobal.length})`
+                : `Global results (${distinctGlobal.length} shown of ${globalTotalCount})`}
+            </span>
             {isSearchingGlobal && (
               <span className="ml-auto flex items-center gap-1">
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -365,10 +377,20 @@ function FoodSearchResults({
                   isSaving={savingGlobalId === food.id}
                 />
               ))}
-              {globalFoods.length >= 50 && (
-                <p className="px-1 pt-2 text-xs text-muted-foreground">
-                  Showing the top 50 matches. Add a menu item to narrow the search.
-                </p>
+              {hasMoreGlobal && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={onLoadMoreGlobal}
+                  disabled={isSearchingGlobal || isLoadingMoreGlobal}
+                >
+                  {isLoadingMoreGlobal && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  {isLoadingMoreGlobal ? "Loading more..." : "Load more"}
+                </Button>
               )}
             </>
           ) : (
@@ -436,9 +458,13 @@ export function FoodPickerDialog({
   const {
     foods: globalFoods,
     searchedQuery,
+    totalCount: globalTotalCount,
+    hasMore: hasMoreGlobal,
     isSearching: isSearchingGlobal,
+    isLoadingMore: isLoadingMoreGlobal,
     error: globalError,
     searchGlobal,
+    loadMore: loadMoreGlobal,
     clearGlobal,
   } = useGlobalFoodSearch();
 
@@ -457,7 +483,10 @@ export function FoodPickerDialog({
 
   // Sort library foods by recent usage
   const sortedLibraryFoods = useMemo(() => {
-    if (!recentIdLookup) return libraryFoods;
+    // Text relevance is authoritative while searching. Device-local recency is
+    // useful only for the empty-query quick-pick list and must not overwrite the
+    // shared ranker's exact/prefix ordering.
+    if (normalizeFoodSearchQuery(searchQuery) || !recentIdLookup) return libraryFoods;
 
     return [...libraryFoods].sort((a, b) => {
       const aIndex = recentIdLookup.get(a.id);
@@ -470,7 +499,7 @@ export function FoodPickerDialog({
       if (bIndex !== undefined) return 1;
       return 0;
     });
-  }, [libraryFoods, recentIdLookup]);
+  }, [libraryFoods, recentIdLookup, searchQuery]);
 
   const isLoading = isLoadingLibrary;
 
@@ -491,6 +520,9 @@ export function FoodPickerDialog({
     setActionError(null);
     try {
       await addExistingToLibrary(food.id);
+      // Keep paginated offsets stable after the personal-library exclusion set
+      // changes. Cached rows paint immediately while page zero revalidates.
+      if (searchedQuery) await searchGlobal(searchedQuery);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Could not save food");
     } finally {
@@ -864,14 +896,18 @@ export function FoodPickerDialog({
               <FoodSearchResults
                 libraryFoods={sortedLibraryFoods}
                 globalFoods={globalFoods}
+                globalTotalCount={globalTotalCount}
+                hasMoreGlobal={hasMoreGlobal}
                 isLoadingLibrary={isLoading}
                 isSearchingGlobal={isSearchingGlobal}
+                isLoadingMoreGlobal={isLoadingMoreGlobal}
                 globalError={globalError}
                 searchQuery={searchQuery}
                 searchedGlobally={Boolean(searchedQuery)}
                 savingGlobalId={savingGlobalId}
                 onSelect={handleSelectFood}
                 onSaveGlobal={handleSaveGlobal}
+                onLoadMoreGlobal={loadMoreGlobal}
               />
             </div>
           </div>
@@ -931,14 +967,18 @@ export function FoodPickerDialog({
                 <FoodSearchResults
                   libraryFoods={sortedLibraryFoods}
                   globalFoods={globalFoods}
+                  globalTotalCount={globalTotalCount}
+                  hasMoreGlobal={hasMoreGlobal}
                   isLoadingLibrary={isLoading}
                   isSearchingGlobal={isSearchingGlobal}
+                  isLoadingMoreGlobal={isLoadingMoreGlobal}
                   globalError={globalError}
                   searchQuery={searchQuery}
                   searchedGlobally={Boolean(searchedQuery)}
                   savingGlobalId={savingGlobalId}
                   onSelect={handleSelectFood}
                   onSaveGlobal={handleSaveGlobal}
+                  onLoadMoreGlobal={loadMoreGlobal}
                 />
               </div>
             </TabsContent>

@@ -73,6 +73,64 @@ test("hybrid search v3 preserves the v2 RPC, security, and ranking contract", ()
   );
 });
 
+test("food search v4 stores one canonical weighted representation", () => {
+  const sql = migration("add_food_search_v4.sql");
+  assert.match(sql, /CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA extensions/);
+  assert.match(sql, /extensions\.unaccent\(/);
+  assert.match(sql, /replace\(coalesce\(input_text, ''\), 'â€™', ''\)/);
+  assert.match(sql, /\[''’‘ʼ\]\+/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS search_normalized_name text NOT NULL/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS search_normalized_brand text NOT NULL/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS search_normalized_brand_name text NOT NULL/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS search_compact_brand_name text NOT NULL/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS search_identity_document text NOT NULL/);
+  assert.match(sql, /setweight\([\s\S]*search_normalized_brand_name[\s\S]*'A'/);
+  assert.match(sql, /nullif\((?:NEW\.)?normalized_variant, ''\)[\s\S]*'B'/);
+  assert.match(sql, /normalized_category\),\s*'C'/);
+  assert.match(sql, /normalized_serving\),\s*'D'/);
+  assert.match(sql, /BEFORE UPDATE OF\s+name,\s+brand,\s+brand_slug,\s+search_aliases/);
+  assert.match(sql, /Backfill only search fields/);
+});
+
+test("food search v4 is a paginated, RLS-preserving generic RPC", () => {
+  const sql = migration("add_food_search_v4.sql");
+  assert.match(
+    sql,
+    /FUNCTION public\.search_foods_v4\(\s*search_query text,[\s\S]*result_offset integer DEFAULT 0,[\s\S]*exclude_library_param boolean DEFAULT false/,
+  );
+  assert.match(sql, /SECURITY INVOKER\s+SET search_path = pg_catalog, public/);
+  assert.match(sql, /least\(greatest\(coalesce\(result_offset, 0\), 0\), 5000\)/);
+  assert.match(sql, /params\.exclude_library IS FALSE[\s\S]*NOT EXISTS \([\s\S]*library\.user_id = auth\.uid\(\)/);
+  assert.match(sql, /count\(\*\) OVER \(\)::bigint AS matched_count/);
+  assert.match(sql, /OFFSET \(SELECT page_offset FROM params\)/);
+  assert.match(sql, /counted\.search_normalized_brand,[\s\S]*counted\.search_normalized_name,[\s\S]*counted\.id/);
+  assert.match(
+    sql,
+    /REVOKE ALL ON FUNCTION public\.search_foods_v4\([\s\S]*FROM PUBLIC, anon;[\s\S]*GRANT EXECUTE ON FUNCTION public\.search_foods_v4\([\s\S]*TO authenticated/,
+  );
+});
+
+test("food search v4 tiers exact, identity, prefix, typo, then semantic", () => {
+  const sql = migration("add_food_search_v4.sql");
+  assert.match(sql, /split\.token_position <= 8/);
+  assert.match(sql, /quote_literal\(tokens\.token\) \|\| ':\*'/);
+  assert.match(sql, /' <-> ' ORDER BY tokens\.token_position/);
+  assert.match(sql, /food\.search_tsv @@ params\.prefix_query/);
+  assert.match(sql, /SET pg_trgm\.word_similarity_threshold = '0\.45'/);
+  assert.match(sql, /params\.token_count = 1[\s\S]*length\(params\.fuzzy_anchor\) >= 5[\s\S]*minimum_score >= 0\.55/);
+  assert.match(sql, /params\.token_count > 1[\s\S]*minimum_score >= 0\.45/);
+  assert.match(sql, /food\.search_identity_document\s+OPERATOR\(extensions\.%>\) params\.fuzzy_anchor/);
+  assert.match(sql, /word_similarity\([\s\S]*food\.search_identity_document/);
+  assert.match(sql, /NOT EXISTS \(SELECT 1 FROM structured_admitted\)/);
+  assert.match(sql, /NOT EXISTS \(SELECT 1 FROM prefix_admitted\)/);
+  assert.match(sql, /length\(short_token\.token\) < 3[\s\S]*to_tsvector\([\s\S]*food\.search_identity_document[\s\S]*@@ to_tsquery/);
+  assert.match(sql, /food\.embedding OPERATOR\(extensions\.<=>\) params\.embedding/);
+  assert.match(
+    sql,
+    /WHEN features\.exact_brand_name OR features\.exact_name THEN 1[\s\S]*features\.alias_prefix THEN 2[\s\S]*features\.prefix_rank > 0\.0 THEN 3[\s\S]*features\.typo_score > 0\.0 THEN 4[\s\S]*ELSE 5/,
+  );
+});
+
 test("food visibility is global except for caller-owned manual rows", () => {
   const sql = migration("add_food_search_v2.sql");
   assert.match(

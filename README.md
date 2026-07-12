@@ -53,8 +53,11 @@ docs/              operational setup notes
 Both the standalone Food Library and the meal picker follow the intended
 personal-first interaction:
 
-- Typing filters the session-cached personal library only. There is no network
-  request per keystroke.
+- Typing searches the session-cached personal library only. A shared generic
+  ranker handles exact brand/item identity, compact brands, ordered and
+  all-token prefixes, aliases, and one conservative typo; there is no network
+  request per keystroke. Empty-query quick picks may use device recency, but
+  recency never overwrites text relevance.
 - Enter or the visible **Search All** control calls authenticated
   `GET /api/food/search`; the interface always explains this second stage even
   when personal matches already exist.
@@ -64,26 +67,36 @@ personal-first interaction:
 - Global results can be logged directly or starred into `user_food_library`.
 - A bounded ten-minute cache can paint recent global results immediately, but
   every explicit search revalidates with `no-store` so a catalog rollout cannot
-  leave a live PWA session on stale results.
-- Result headings distinguish the personal library from the number of global
-  results currently shown; that number is not the catalog total because saved
-  personal rows are de-duplicated. Global search returns the top 50 matches and
-  tells the user to add a menu item to narrow a broader brand query.
+  leave a live PWA session on stale results. Cache keys include user, normalized
+  query, page, and page size; render-time ownership guards prevent account-switch
+  data flashes.
+- Result headings show the number loaded and the exact global match total.
+  Stable 50-row pages expose **Load more** on both phone and web, so a 420- or
+  515-item restaurant menu can be traversed instead of being silently truncated.
+  Rows already in the personal library are excluded before the global page is
+  cut, while the AI command path deliberately keeps them searchable.
 
-The server is upgrade-aware. It uses `search_foods_hybrid` when the v2 SQL is
-installed, the current lexical RPC during rollout, and a bounded legacy
-name/brand/brand-slug search as a final compatibility path. It first probes
-capability without paying for an embedding, and remains lexical when
-`OPENAI_API_KEY` is absent.
+The server is upgrade-aware. It prefers `search_foods_v4`, falls back to
+`search_foods_hybrid`, then the lexical RPC, and finally a bounded legacy
+name/brand/brand-slug search. Capability probes never spend an embedding call.
+Semantic query embeddings require both `OPENAI_API_KEY` and the explicit
+`FOOD_SEMANTIC_SEARCH_ENABLED=true` flag; leave that flag unset until a matching
+catalog embedding backfill has actually completed.
 
-The v2 base search plus additive `sql/add_food_search_v3.sql` provide:
+The v2 base plus additive v3/v4 search migrations provide:
 
-- stored normalized lexical text with active-only GIN/trigram indexes;
-- indexed, conjunctive token-prefix retrieval (`qd`, `qdob`, and partial item
-  words) with structured brand/name/alias boosts and bounded typo recovery;
+- one accent-folded, apostrophe-safe normalization contract with stored
+  field-specific and compact identity text;
+- weighted positional full-text search (brand/name A; aliases, compact identity,
+  and variant B; category C; serving D) with active-only B-tree, GIN, and trigram
+  indexes;
+- indexed conjunctive and ordered token-prefix retrieval (`qd`, `qdob`, partial
+  brands/items), exact identity tiers, compact-brand matching, and a
+  fallback-only tokenwise typo lane;
+- deterministic tier-first ranking so exact/prefix results cannot be displaced
+  by fuzzy or semantic neighbors, plus exact totals and stable pagination;
 - active-only HNSW cosine retrieval;
-- independent lexical and semantic candidates merged by reciprocal rank fusion;
-- exact lexical dominance plus a small `auth.uid()` library tie-break; and
+- optional semantic fallback beneath lexical tiers; and
 - embedding model/input-hash/update metadata for invalidation and backfills.
 
 Production search v3 was applied on 2026-07-11 after locking the prior function
@@ -94,6 +107,20 @@ unchanged. Authenticated checks as a synthetic future user returned only the
 expected restaurant for `qd`, `qdob`, `chip`, `red rob`, `five g`, `taco b`,
 and their brand/item prefix combinations; `chipotle` and `chipotle ` returned
 identical IDs. A warm two-character prefix query completed in about 31 ms.
+
+Production search v4 was applied on 2026-07-11 after a full transaction/rollback
+rehearsal and a locked snapshot in
+`rollout_backup_20260711_food_search_v4`. The snapshot stores all 2,437 prior
+search rows, the v3 function, judged v3 results, and the live baseline: 2,332
+active restaurant foods, 471 food logs, 99 personal-library links, 28 saved-meal
+links, 11 import batches, 2,602 provenance rows, and 2,609 transitions. All
+counts, food `updated_at` values, embedding metadata, import journals, and user
+tables remained unchanged. The versioned relevance suite passes exact brands,
+partial/compact brands, ordered item prefixes, trailing whitespace, and bounded
+single/multi-token typos. A synthetic future user sees all 2,332 restaurant rows
+and zero other-user manual rows; anonymous RPC execution is denied. Warm database
+execution measured about 41 ms for a broad item query, 52 ms for `qd`, 100 ms for
+the 420-row Red Robin browse, and 195 ms for multi-token typo recovery.
 
 Manual-food and library writes prefer ownership-scoped v2 RPCs and fall back to
 today's policies only while those RPCs are absent. Barcode foods are re-fetched
@@ -173,7 +200,7 @@ Do not treat embeddings as complete until the bounded backfill below is
 intentionally resumed and finishes without failures.
 
 For a fresh environment, take a database backup and complete a non-production
-rehearsal before applying the four SQL files in the order below. For subsequent
+rehearsal before applying the five SQL files in the order below. For subsequent
 whole-chain snapshots, the migrations are already present: begin at the dry run,
 add only the reviewed payload hash, and import through the bridge.
 
@@ -190,14 +217,17 @@ post-import checks finish:
 2. Apply `sql/add_restaurant_food_import.sql`.
 3. Apply `sql/add_food_search_v2.sql`.
 4. Apply `sql/add_food_search_v3.sql`.
-5. Repeat `npm run import-restaurant-foods -- <bundle-directory>` and confirm
+5. Apply `sql/add_food_search_v4.sql`, then run the read-only
+   `sql/verify_food_search_v4.sql` suite.
+6. Repeat `npm run import-restaurant-foods -- <bundle-directory>` and confirm
    the counts and hash are unchanged.
-6. Use the Vercel bridge command below to import without placing the Supabase
+7. Use the Vercel bridge command below to import without placing the Supabase
    service-role key on the collector/operator machine.
-7. Verify exact returned counts and search several imported foods.
-8. Run the bounded Vercel embedding loop below.
-9. Repeat authenticated food-search and food-log smoke tests in production.
-10. Remove `RESTAURANT_IMPORT_ALLOWED_SHA256` and redeploy so the bridge returns
+8. Verify exact returned counts and search several imported foods.
+9. Run the bounded Vercel embedding loop only when semantic search is deliberately
+   resumed; enable `FOOD_SEMANTIC_SEARCH_ENABLED=true` after coverage is complete.
+10. Repeat authenticated food-search and food-log smoke tests in production.
+11. Remove `RESTAURANT_IMPORT_ALLOWED_SHA256` and redeploy so the bridge returns
    unavailable outside a reviewed, one-payload import window.
 
 The v2 migration adds indexed hybrid search, safe manual/library RPCs, restricted

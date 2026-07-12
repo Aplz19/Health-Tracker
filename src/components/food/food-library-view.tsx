@@ -24,14 +24,18 @@ const BarcodeScanner = dynamic(
 interface FoodLibraryViewProps {
   foods: LibraryFood[];
   globalFoods: Food[];
+  globalTotalCount: number | null;
+  hasMoreGlobal: boolean;
   isLoading: boolean;
   isSearchingGlobal: boolean;
+  isLoadingMoreGlobal: boolean;
   searchedGlobally: boolean;
   globalError: string | null;
   savingGlobalId: string | null;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onSearchAll: () => void;
+  onLoadMoreGlobal: () => void;
   onSaveGlobal: (food: Food) => void;
   onAddFood: () => void;
   onEditFood: (food: LibraryFood) => void;
@@ -42,14 +46,18 @@ interface FoodLibraryViewProps {
 export function FoodLibraryView({
   foods,
   globalFoods,
+  globalTotalCount,
+  hasMoreGlobal,
   isLoading,
   isSearchingGlobal,
+  isLoadingMoreGlobal,
   searchedGlobally,
   globalError,
   savingGlobalId,
   searchQuery,
   onSearchChange,
   onSearchAll,
+  onLoadMoreGlobal,
   onSaveGlobal,
   onAddFood,
   onEditFood,
@@ -225,7 +233,11 @@ export function FoodLibraryView({
               <div className="border-t p-4 space-y-2">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Globe2 className="h-3 w-3" />
-                  <span>Global results shown ({distinctGlobalFoods.length})</span>
+                  <span>
+                    {globalTotalCount === null
+                      ? `Global results shown (${distinctGlobalFoods.length})`
+                      : `Global results (${distinctGlobalFoods.length} shown of ${globalTotalCount})`}
+                  </span>
                   {isSearchingGlobal && (
                     <span className="ml-auto flex items-center gap-1">
                       <Loader2 className="h-3 w-3 animate-spin" />
@@ -243,10 +255,20 @@ export function FoodLibraryView({
                         isSaving={savingGlobalId === food.id}
                       />
                     ))}
-                    {globalFoods.length >= 50 && (
-                      <p className="px-1 pt-2 text-xs text-muted-foreground">
-                        Showing the top 50 matches. Add a menu item to narrow the search.
-                      </p>
+                    {hasMoreGlobal && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 w-full"
+                        onClick={onLoadMoreGlobal}
+                        disabled={isSearchingGlobal || isLoadingMoreGlobal}
+                      >
+                        {isLoadingMoreGlobal && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        {isLoadingMoreGlobal ? "Loading more..." : "Load more"}
+                      </Button>
                     )}
                   </>
                 ) : (

@@ -3,49 +3,105 @@ import { normalizeFood } from "@/lib/food/client-food";
 import { normalizeFoodSearchQuery } from "@/lib/food/search-query";
 import type { Food } from "@/lib/supabase/types";
 
-const GLOBAL_SEARCH_PREFIX = "global_food_search:";
+const GLOBAL_SEARCH_PREFIX = "global_food_search_v4:";
 const GLOBAL_SEARCH_TTL_MS = 10 * 60 * 1_000;
+export const GLOBAL_SEARCH_PAGE_SIZE = 50;
 
 interface SearchPayload {
   foods?: unknown[];
+  totalCount?: number | null;
+  offset?: number;
+  limit?: number;
+  hasMore?: boolean;
   error?: string;
 }
 
 export interface CachedGlobalFoodSearch {
   foods: Food[];
   normalizedQuery: string;
+  totalCount: number | null;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
 }
 
-export function getCachedGlobalFoodSearch(rawQuery: string): CachedGlobalFoodSearch | null {
-  const normalizedQuery = normalizeFoodSearchQuery(rawQuery);
-  if (!normalizedQuery) return null;
+/** Render-time ownership guard; effects run too late to prevent an account-switch flash. */
+export function canDisplayGlobalFoodSearchState(
+  stateUserId: string | null,
+  currentUserId: string | null
+): boolean {
+  return stateUserId === currentUserId;
+}
 
-  const foods = getCached<Food[]>(`${GLOBAL_SEARCH_PREFIX}${normalizedQuery}`);
-  return foods ? { foods, normalizedQuery } : null;
+interface FetchGlobalFoodSearchOptions {
+  userId: string;
+  offset?: number;
+  limit?: number;
+  signal?: AbortSignal;
+  fetcher?: typeof fetch;
+}
+
+function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.max(minimum, Math.min(Math.trunc(value), maximum));
+}
+
+function cacheKey(userId: string, query: string, offset: number, limit: number): string {
+  return `${GLOBAL_SEARCH_PREFIX}${userId}:${offset}:${limit}:${query}`;
+}
+
+export function getCachedGlobalFoodSearch(
+  rawQuery: string,
+  userId: string | null | undefined,
+  offset = 0,
+  limit = GLOBAL_SEARCH_PAGE_SIZE
+): CachedGlobalFoodSearch | null {
+  const normalizedQuery = normalizeFoodSearchQuery(rawQuery);
+  if (!normalizedQuery || !userId) return null;
+
+  return (
+    getCached<CachedGlobalFoodSearch>(
+      cacheKey(userId, normalizedQuery, offset, limit)
+    ) ?? null
+  );
 }
 
 /**
- * Fetch a fresh result for an explicit global search and replace the short-lived
- * cache. Callers may paint getCachedGlobalFoodSearch() first, but must still call
- * this function so a catalog rollout cannot leave a session on stale results.
+ * Fetch one stable page of an explicit global search. Cache entries include the
+ * authenticated user id because row visibility and library exclusions are
+ * user-specific. Callers may paint page zero from cache, then still revalidate.
  */
 export async function fetchFreshGlobalFoodSearch(
   rawQuery: string,
-  signal?: AbortSignal,
-  fetcher: typeof fetch = fetch
+  options: FetchGlobalFoodSearchOptions
 ): Promise<CachedGlobalFoodSearch> {
   const normalizedQuery = normalizeFoodSearchQuery(rawQuery);
-  if (!normalizedQuery) return { foods: [], normalizedQuery: "" };
+  const offset = boundedInteger(options.offset, 0, 0, 5_000);
+  const limit = boundedInteger(options.limit, GLOBAL_SEARCH_PAGE_SIZE, 1, 50);
+  if (!normalizedQuery) {
+    return {
+      foods: [],
+      normalizedQuery: "",
+      totalCount: 0,
+      offset,
+      limit,
+      hasMore: false,
+    };
+  }
+  if (!options.userId) throw new Error("Not authenticated");
 
-  const response = await fetcher(
-    `/api/food/search?q=${encodeURIComponent(normalizedQuery)}`,
-    {
-      method: "GET",
-      signal,
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    }
-  );
+  const fetcher = options.fetcher ?? fetch;
+  const params = new URLSearchParams({
+    q: normalizedQuery,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const response = await fetcher(`/api/food/search?${params.toString()}`, {
+    method: "GET",
+    signal: options.signal,
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
   const payload = (await response.json()) as SearchPayload;
   if (!response.ok) throw new Error(payload.error || "Global food search failed");
 
@@ -61,8 +117,29 @@ export async function fetchFreshGlobalFoodSearch(
     })
     .map(normalizeFood);
 
-  setCached(`${GLOBAL_SEARCH_PREFIX}${normalizedQuery}`, foods, {
+  const responseOffset = boundedInteger(payload.offset, offset, 0, 5_000);
+  const responseLimit = boundedInteger(payload.limit, limit, 1, 50);
+  const totalCount =
+    typeof payload.totalCount === "number" &&
+    Number.isFinite(payload.totalCount) &&
+    payload.totalCount >= 0
+      ? Math.trunc(payload.totalCount)
+      : null;
+  const hasMore =
+    typeof payload.hasMore === "boolean"
+      ? payload.hasMore
+      : totalCount !== null && responseOffset + foods.length < totalCount;
+
+  const result: CachedGlobalFoodSearch = {
+    foods,
+    normalizedQuery,
+    totalCount,
+    offset: responseOffset,
+    limit: responseLimit,
+    hasMore,
+  };
+  setCached(cacheKey(options.userId, normalizedQuery, offset, limit), result, {
     ttlMs: GLOBAL_SEARCH_TTL_MS,
   });
-  return { foods, normalizedQuery };
+  return result;
 }

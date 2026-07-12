@@ -7,6 +7,18 @@ const RATE_WINDOW_MS = 60_000;
 const MAX_SEARCHES_PER_WINDOW = 60;
 const rateWindows = new Map<string, { startedAt: number; count: number }>();
 
+function boundedInteger(
+  value: string | null,
+  fallback: number,
+  minimum: number,
+  maximum: number
+): number {
+  if (value === null || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(minimum, Math.min(Math.trunc(parsed), maximum));
+}
+
 function isRateLimited(userId: string): boolean {
   const now = Date.now();
   const current = rateWindows.get(userId);
@@ -33,8 +45,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Search must contain at least 2 characters" }, { status: 400 });
   }
 
+  const limit = boundedInteger(request.nextUrl.searchParams.get("limit"), 50, 1, 50);
+  const offset = boundedInteger(request.nextUrl.searchParams.get("offset"), 0, 0, 5_000);
+
   try {
-    const result = await searchFoodsServer(supabase, query);
+    const result = await searchFoodsServer(supabase, query, {
+      limit,
+      offset,
+      excludeLibrary: true,
+    });
     return NextResponse.json(result, {
       headers: { "Cache-Control": "private, no-store" },
     });

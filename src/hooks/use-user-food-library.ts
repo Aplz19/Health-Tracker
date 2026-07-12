@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import type { Food, FoodInsert } from "@/lib/supabase/types";
@@ -9,17 +9,13 @@ import {
   FOOD_CLIENT_V2_COLUMNS,
   normalizeFood,
 } from "@/lib/food/client-food";
-import { normalizeFoodSearchQuery } from "@/lib/food/search-query";
+import { matchAndRankFoodSearchResults } from "@/lib/food/search-query";
 import { useAuth } from "@/contexts/auth-context";
 
 // Food with library metadata
 export interface LibraryFood extends Food {
   library_id: string;
   added_at: string;
-}
-
-function normalizeSearchText(value: string): string {
-  return normalizeFoodSearchQuery(value);
 }
 
 function isMissingRpc(error: { code?: string; message?: string } | null): boolean {
@@ -109,31 +105,63 @@ function toLegacyFoodMutation(food: Partial<FoodInsert>): Record<string, unknown
 export function useUserFoodLibrary(searchQuery: string = "") {
   const { user } = useAuth();
   const cacheKey = `user_food_library:${user?.id ?? "anonymous"}`;
+  const activeCacheKeyRef = useRef(cacheKey);
   // The full (unfiltered) library is fetched ONCE and searched in memory.
   // Previously searchQuery was a dependency of the fetch, so every keystroke
   // in the search box re-downloaded the entire library from Supabase.
-  const [allFoods, setAllFoodsState] = useState<LibraryFood[]>(
+  const [allFoodsState, setAllFoodsState] = useState<LibraryFood[]>(
     () => getCached<LibraryFood[]>(cacheKey) ?? []
   );
+  const [stateCacheKey, setStateCacheKey] = useState(cacheKey);
   const [isLoading, setIsLoading] = useState(() => !hasCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    activeCacheKeyRef.current = cacheKey;
+  }, [cacheKey]);
+  // The key guard takes effect during render, before an account-change effect
+  // runs, so one user's library can never flash for another user.
+  const cachedFoods = getCached<LibraryFood[]>(cacheKey);
+  const allFoods = useMemo(
+    () => (stateCacheKey === cacheKey ? allFoodsState : cachedFoods ?? []),
+    [allFoodsState, cacheKey, cachedFoods, stateCacheKey]
+  );
+  const activeIsLoading =
+    stateCacheKey === cacheKey ? isLoading : cachedFoods === undefined;
+  const activeError = stateCacheKey === cacheKey ? error : null;
 
   // Write-through setter keeps the session cache in sync.
   const setAllFoods = useCallback((updater: React.SetStateAction<LibraryFood[]>) => {
+    if (activeCacheKeyRef.current !== cacheKey) return;
+    setStateCacheKey(cacheKey);
     setAllFoodsState((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
+      const base =
+        stateCacheKey === cacheKey
+          ? prev
+          : getCached<LibraryFood[]>(cacheKey) ?? [];
+      const next = typeof updater === "function" ? updater(base) : updater;
       setCached(cacheKey, next);
       return next;
     });
-  }, [cacheKey]);
+  }, [cacheKey, stateCacheKey]);
 
   const fetchLibrary = useCallback(async () => {
-    if (!hasCached(cacheKey)) setIsLoading(true);
-    setError(null);
+    // Yield once so an auth/cache-key change commits before this request may
+    // update visible state, and so mounting the hook does not cascade renders.
+    await Promise.resolve();
+    const cached = getCached<LibraryFood[]>(cacheKey);
+    if (activeCacheKeyRef.current === cacheKey) {
+      setStateCacheKey(cacheKey);
+      setAllFoodsState(cached ?? []);
+      setIsLoading(cached === undefined);
+      setError(null);
+    }
+
+    if (!user) {
+      if (activeCacheKeyRef.current === cacheKey) setIsLoading(false);
+      return;
+    }
 
     try {
-      if (!user) throw new Error("Not authenticated");
-
       const fetchRows = (foodColumns: string) =>
         supabase
           .from("user_food_library")
@@ -170,35 +198,29 @@ export function useUserFoodLibrary(searchQuery: string = "") {
           added_at: item.added_at,
         }));
 
-      setAllFoods(libraryFoods);
+      setCached(cacheKey, libraryFoods);
+      if (activeCacheKeyRef.current === cacheKey) {
+        setStateCacheKey(cacheKey);
+        setAllFoodsState(libraryFoods);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch library");
+      if (activeCacheKeyRef.current === cacheKey) {
+        setError(err instanceof Error ? err.message : "Failed to fetch library");
+      }
     } finally {
-      setIsLoading(false);
+      if (activeCacheKeyRef.current === cacheKey) setIsLoading(false);
     }
-  }, [cacheKey, setAllFoods, user]);
+  }, [cacheKey, user]);
 
   useEffect(() => {
     fetchLibrary();
   }, [fetchLibrary]);
 
   // In-memory search — instant, no network per keystroke.
-  const foods = useMemo(() => {
-    if (!searchQuery) return allFoods;
-    const terms = normalizeSearchText(searchQuery).split(" ").filter(Boolean);
-    return allFoods.filter((food) => {
-      const searchable = normalizeSearchText([
-        food.name,
-        food.brand,
-        food.brand_slug,
-        ...(food.search_aliases || []),
-        food.variant_label,
-        food.source_category,
-      ].filter(Boolean).join(" "));
-      const compact = searchable.replace(/\s+/g, "");
-      return terms.every((term) => searchable.includes(term) || compact.includes(term));
-    });
-  }, [allFoods, searchQuery]);
+  const foods = useMemo(
+    () => matchAndRankFoodSearchResults(allFoods, searchQuery) as LibraryFood[],
+    [allFoods, searchQuery]
+  );
 
   // Add a food to the user's personal library
   // If it's a new food (FoodInsert), create it in global cache first
@@ -436,8 +458,8 @@ export function useUserFoodLibrary(searchQuery: string = "") {
 
   return {
     foods,
-    isLoading,
-    error,
+    isLoading: activeIsLoading,
+    error: activeError,
     addToLibrary,
     addExistingToLibrary,
     removeFromLibrary,

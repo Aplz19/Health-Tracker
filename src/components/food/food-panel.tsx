@@ -34,9 +34,13 @@ export function FoodPanel() {
   const {
     foods: globalFoods,
     searchedQuery,
+    totalCount: globalTotalCount,
+    hasMore: hasMoreGlobal,
     isSearching: isSearchingGlobal,
+    isLoadingMore: isLoadingMoreGlobal,
     error: globalSearchError,
     searchGlobal,
+    loadMore: loadMoreGlobal,
     clearGlobal,
   } = useGlobalFoodSearch();
 
@@ -58,6 +62,9 @@ export function FoodPanel() {
     setGlobalActionError(null);
     try {
       await addExistingToLibrary(food.id);
+      // v4 pages exclude personal-library rows. Refresh page zero after the
+      // exclusion set changes so later offsets cannot skip a result.
+      if (searchedQuery) await searchGlobal(searchedQuery);
     } catch (error) {
       setGlobalActionError(error instanceof Error ? error.message : "Could not save food");
     } finally {
@@ -141,14 +148,18 @@ export function FoodPanel() {
           <FoodLibraryView
             foods={foods}
             globalFoods={globalFoods}
+            globalTotalCount={globalTotalCount}
+            hasMoreGlobal={hasMoreGlobal}
             isLoading={isLoading}
             isSearchingGlobal={isSearchingGlobal}
+            isLoadingMoreGlobal={isLoadingMoreGlobal}
             searchedGlobally={Boolean(searchedQuery)}
             globalError={globalActionError ?? globalSearchError}
             savingGlobalId={savingGlobalId}
             searchQuery={searchQuery}
             onSearchChange={handleSearchChange}
             onSearchAll={handleSearchAll}
+            onLoadMoreGlobal={loadMoreGlobal}
             onSaveGlobal={handleSaveGlobal}
             onAddFood={showAddForm}
             onEditFood={showEditForm}
