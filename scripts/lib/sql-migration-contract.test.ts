@@ -29,6 +29,50 @@ test("hybrid search resolves Supabase pgvector operators from the extensions sch
   assert.doesNotMatch(sql, /embedding\s*<=>/);
 });
 
+test("hybrid search v3 adds bounded indexed prefix and word-typo retrieval", () => {
+  const sql = migration("add_food_search_v3.sql");
+  assert.match(sql, /split\.token_position <= 8/);
+  assert.match(sql, /quote_literal\(tokens\.token\) \|\| ':\*'/);
+  assert.match(sql, /to_tsquery\([\s\S]*'simple'::regconfig/);
+  assert.match(sql, /f\.search_tsv @@ p\.prefix_query/);
+  assert.match(sql, /ts_rank_cd\(f\.search_tsv, p\.prefix_query, 32\)/);
+  assert.match(sql, /f\.search_document OPERATOR\(extensions\.%>\) p\.query/);
+  assert.match(sql, /f\.name OPERATOR\(extensions\.%\) p\.query/);
+  assert.match(sql, /f\.brand OPERATOR\(extensions\.%\) p\.query/);
+  assert.match(sql, /extensions\.similarity\(f\.name, p\.query\)/);
+  assert.match(sql, /extensions\.similarity\(coalesce\(f\.brand, ''\), p\.query\)/);
+  assert.match(sql, /extensions\.word_similarity\(p\.query, f\.search_document\)/);
+  assert.match(sql, /\(SELECT count\(\*\) FROM query_tokens\) = 1/);
+  assert.match(sql, /structured\.normalized_name = p\.query/);
+  assert.match(sql, /structured\.normalized_brand = p\.query/);
+  assert.match(sql, /structured\.normalized_brand_name = p\.query/);
+  assert.match(sql, /aliases\.alias_exact/);
+  assert.match(sql, /aliases\.alias_prefix/);
+});
+
+test("hybrid search v3 preserves the v2 RPC, security, and ranking contract", () => {
+  const v2 = migration("add_food_search_v2.sql");
+  const v3 = migration("add_food_search_v3.sql");
+  const returnSchema = (sql: string) =>
+    sql.match(/RETURNS TABLE \(([\s\S]*?)\)\s*LANGUAGE sql/)?.[1].replace(/\s+/g, " ").trim();
+
+  assert.equal(returnSchema(v3), returnSchema(v2), "v3 must preserve the exact return schema");
+  assert.match(v3, /SECURITY INVOKER\s+SET search_path = pg_catalog, public/);
+  assert.ok(
+    [...v3.matchAll(/f\.source <> 'manual' OR f\.created_by = auth\.uid\(\)/g)].length >= 4,
+    "prefix, typo, semantic, and fused candidates must all fail closed",
+  );
+  assert.match(v3, /1\.25 \/ \(60\.0 \+ lexical_rank\)/);
+  assert.match(v3, /1\.0 \/ \(60\.0 \+ semantic_rank\)/);
+  assert.match(v3, /cosine_distance <= 0\.75/);
+  assert.match(v3, /least\(greatest\(coalesce\(result_limit, 50\), 1\), 50\)/);
+  assert.match(v3, /greatest\(coalesce\(result_limit, 50\) \* 4, 50\),\s*200/);
+  assert.match(
+    v3,
+    /REVOKE ALL ON FUNCTION public\.search_foods_hybrid\(text, extensions\.vector, text, integer\)[\s\S]*FROM PUBLIC, anon[\s\S]*GRANT EXECUTE[\s\S]*TO authenticated/,
+  );
+});
+
 test("food visibility is global except for caller-owned manual rows", () => {
   const sql = migration("add_food_search_v2.sql");
   assert.match(

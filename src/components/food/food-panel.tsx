@@ -5,6 +5,10 @@ import { FoodLibraryView } from "./food-library-view";
 import { AddFoodFormView } from "./add-food-form-view";
 import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
 import { useGlobalFoodSearch } from "@/hooks/use-global-food-search";
+import {
+  isSameFoodSearchQuery,
+  normalizeFoodSearchQuery,
+} from "@/lib/food/search-query";
 import { cn } from "@/lib/utils";
 import type { Food } from "@/lib/supabase/types";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
@@ -37,13 +41,14 @@ export function FoodPanel() {
   } = useGlobalFoodSearch();
 
   const handleSearchChange = (query: string) => {
+    const meaningChanged = !isSameFoodSearchQuery(searchQuery, query);
     setSearchQuery(query);
     setGlobalActionError(null);
-    clearGlobal();
+    if (meaningChanged) clearGlobal();
   };
 
   const handleSearchAll = async () => {
-    if (!searchQuery.trim() || isSearchingGlobal) return;
+    if (!normalizeFoodSearchQuery(searchQuery)) return;
     await searchGlobal(searchQuery);
   };
 

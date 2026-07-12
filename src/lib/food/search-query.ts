@@ -16,6 +16,11 @@ export function normalizeFoodSearchQuery(query: string): string {
     .trim();
 }
 
+/** Whether an input edit changes the query the server and cache will receive. */
+export function isSameFoodSearchQuery(left: string, right: string): boolean {
+  return normalizeFoodSearchQuery(left) === normalizeFoodSearchQuery(right);
+}
+
 function searchableFoodText(food: Food): string {
   return normalizeFoodSearchQuery(
     [
@@ -45,6 +50,8 @@ export function rankFoodSearchResults(foods: Food[], query: string): Food[] {
 
     if (name === normalized) value += 1_000;
     if (`${brand} ${name}`.trim() === normalized) value += 950;
+    if (brand === normalized) value += 900;
+    if (brand.startsWith(normalized)) value += 700;
     if (name.startsWith(normalized)) value += 500;
     if (document.startsWith(normalized)) value += 400;
     if (document.includes(normalized)) value += 250;

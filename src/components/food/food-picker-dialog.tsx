@@ -14,6 +14,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useUserFoodLibrary, type LibraryFood } from "@/hooks/use-user-food-library";
 import { useGlobalFoodSearch } from "@/hooks/use-global-food-search";
+import {
+  isSameFoodSearchQuery,
+  normalizeFoodSearchQuery,
+} from "@/lib/food/search-query";
 import { useSavedMealPresets, type SavedMealPresetWithItems } from "@/hooks/use-saved-meal-presets";
 import dynamic from "next/dynamic";
 import { CreatePresetDialog } from "@/components/meals/create-preset-dialog";
@@ -342,7 +346,7 @@ function FoodSearchResults({
         <section className="space-y-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
             <Globe2 className="h-3 w-3" />
-            <span>Global Foods ({distinctGlobal.length})</span>
+            <span>Global results shown ({distinctGlobal.length})</span>
             {isSearchingGlobal && (
               <span className="ml-auto flex items-center gap-1">
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -471,12 +475,13 @@ export function FoodPickerDialog({
   const isLoading = isLoadingLibrary;
 
   const handleSearchQueryChange = (value: string) => {
+    const meaningChanged = !isSameFoodSearchQuery(searchQuery, value);
     setSearchQuery(value);
-    clearGlobal();
+    if (meaningChanged) clearGlobal();
   };
 
   const handleGlobalSearch = async () => {
-    if (!searchQuery.trim() || isSearchingGlobal) return;
+    if (!normalizeFoodSearchQuery(searchQuery)) return;
     await searchGlobal(searchQuery);
   };
 

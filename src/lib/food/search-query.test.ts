@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeFood } from "@/lib/food/client-food";
 import {
+  isSameFoodSearchQuery,
   normalizeFoodSearchQuery,
   rankFoodSearchResults,
 } from "@/lib/food/search-query";
@@ -21,6 +22,12 @@ test("preserves letters and numbers outside ASCII", () => {
   assert.equal(normalizeFoodSearchQuery("鸡肉  100克"), "鸡肉 100克");
 });
 
+test("treats case, punctuation, and whitespace-only edits as the same search", () => {
+  assert.equal(isSameFoodSearchQuery("Chipotle", "  CHIPOTLE\u00a0"), true);
+  assert.equal(isSameFoodSearchQuery("Chick-fil-A", "chick fil a"), true);
+  assert.equal(isSameFoodSearchQuery("Qdob", "Qdoba"), false);
+});
+
 test("ranks an exact brand and item phrase above partial matches", () => {
   const results = rankFoodSearchResults(
     [
@@ -32,6 +39,18 @@ test("ranks an exact brand and item phrase above partial matches", () => {
   );
 
   assert.equal(results[0].id, "exact");
+});
+
+test("ranks a restaurant brand prefix above an unrelated item-name prefix", () => {
+  const results = rankFoodSearchResults(
+    [
+      food("cookie", "Chocolate Chip Cookie"),
+      food("restaurant", "Chicken Burrito", "Chipotle"),
+    ],
+    "chip"
+  );
+
+  assert.equal(results[0].id, "restaurant");
 });
 
 test("legacy compatibility search includes brand fields", () => {

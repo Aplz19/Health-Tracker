@@ -225,7 +225,7 @@ export function FoodLibraryView({
               <div className="border-t p-4 space-y-2">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Globe2 className="h-3 w-3" />
-                  <span>Global Foods ({distinctGlobalFoods.length})</span>
+                  <span>Global results shown ({distinctGlobalFoods.length})</span>
                   {isSearchingGlobal && (
                     <span className="ml-auto flex items-center gap-1">
                       <Loader2 className="h-3 w-3 animate-spin" />

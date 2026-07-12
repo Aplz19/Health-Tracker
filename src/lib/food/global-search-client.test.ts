@@ -54,3 +54,19 @@ test("rejects an unsuccessful global search response", async () => {
     /Search unavailable/
   );
 });
+
+test("canonicalizes trailing and duplicate whitespace before the request and cache key", async () => {
+  let requestedUrl = "";
+  const fetcher = (async (input: string | URL | Request) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ foods: [row(1)] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await fetchFreshGlobalFoodSearch("  Chipotle\u00a0  ", undefined, fetcher);
+
+  assert.equal(requestedUrl, "/api/food/search?q=chipotle");
+  assert.equal(getCachedGlobalFoodSearch("chipotle ")?.foods.length, 1);
+});

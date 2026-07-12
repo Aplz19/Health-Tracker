@@ -59,12 +59,16 @@ personal-first interaction:
   `GET /api/food/search`; the interface always explains this second stage even
   when personal matches already exist.
 - The client aborts stale requests and accepts only the latest response.
+- Case, punctuation, and whitespace-only edits keep an already-valid global
+  result set because they normalize to the same server/cache query.
 - Global results can be logged directly or starred into `user_food_library`.
 - A bounded ten-minute cache can paint recent global results immediately, but
   every explicit search revalidates with `no-store` so a catalog rollout cannot
   leave a live PWA session on stale results.
-- Result headings show personal/global counts. Global search returns the top 50
-  matches and tells the user to add a menu item to narrow a broader brand query.
+- Result headings distinguish the personal library from the number of global
+  results currently shown; that number is not the catalog total because saved
+  personal rows are de-duplicated. Global search returns the top 50 matches and
+  tells the user to add a menu item to narrow a broader brand query.
 
 The server is upgrade-aware. It uses `search_foods_hybrid` when the v2 SQL is
 installed, the current lexical RPC during rollout, and a bounded legacy
@@ -72,13 +76,24 @@ name/brand/brand-slug search as a final compatibility path. It first probes
 capability without paying for an embedding, and remains lexical when
 `OPENAI_API_KEY` is absent.
 
-The target v2 search in `sql/add_food_search_v2.sql` provides:
+The v2 base search plus additive `sql/add_food_search_v3.sql` provide:
 
 - stored normalized lexical text with active-only GIN/trigram indexes;
+- indexed, conjunctive token-prefix retrieval (`qd`, `qdob`, and partial item
+  words) with structured brand/name/alias boosts and bounded typo recovery;
 - active-only HNSW cosine retrieval;
 - independent lexical and semantic candidates merged by reciprocal rank fusion;
 - exact lexical dominance plus a small `auth.uid()` library tie-break; and
 - embedding model/input-hash/update metadata for invalidation and backfills.
+
+Production search v3 was applied on 2026-07-11 after locking the prior function
+and live counts in `rollout_backup_20260711_food_search_v3`. The function-only
+rollout left all 2,437 foods, 2,332 active restaurant rows, 471 food logs, 99
+personal-library links, 28 saved-meal item links, and import/provenance journals
+unchanged. Authenticated checks as a synthetic future user returned only the
+expected restaurant for `qd`, `qdob`, `chip`, `red rob`, `five g`, `taco b`,
+and their brand/item prefix combinations; `chipotle` and `chipotle ` returned
+identical IDs. A warm two-character prefix query completed in about 31 ms.
 
 Manual-food and library writes prefer ownership-scoped v2 RPCs and fall back to
 today's policies only while those RPCs are absent. Barcode foods are re-fetched
@@ -158,7 +173,7 @@ Do not treat embeddings as complete until the bounded backfill below is
 intentionally resumed and finishes without failures.
 
 For a fresh environment, take a database backup and complete a non-production
-rehearsal before applying the three SQL files in the order below. For subsequent
+rehearsal before applying the four SQL files in the order below. For subsequent
 whole-chain snapshots, the migrations are already present: begin at the dry run,
 add only the reviewed payload hash, and import through the bridge.
 
@@ -174,14 +189,15 @@ post-import checks finish:
 1. Apply `sql/add_vector_search.sql`.
 2. Apply `sql/add_restaurant_food_import.sql`.
 3. Apply `sql/add_food_search_v2.sql`.
-4. Repeat `npm run import-restaurant-foods -- <bundle-directory>` and confirm
+4. Apply `sql/add_food_search_v3.sql`.
+5. Repeat `npm run import-restaurant-foods -- <bundle-directory>` and confirm
    the counts and hash are unchanged.
-5. Use the Vercel bridge command below to import without placing the Supabase
+6. Use the Vercel bridge command below to import without placing the Supabase
    service-role key on the collector/operator machine.
-6. Verify exact returned counts and search several imported foods.
-7. Run the bounded Vercel embedding loop below.
-8. Repeat authenticated food-search and food-log smoke tests in production.
-9. Remove `RESTAURANT_IMPORT_ALLOWED_SHA256` and redeploy so the bridge returns
+7. Verify exact returned counts and search several imported foods.
+8. Run the bounded Vercel embedding loop below.
+9. Repeat authenticated food-search and food-log smoke tests in production.
+10. Remove `RESTAURANT_IMPORT_ALLOWED_SHA256` and redeploy so the bridge returns
    unavailable outside a reviewed, one-payload import window.
 
 The v2 migration adds indexed hybrid search, safe manual/library RPCs, restricted
