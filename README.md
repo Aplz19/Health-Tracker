@@ -194,6 +194,25 @@ replays of all eleven accepted bundles return `IDEMPOTENT_REPLAY` with zero
 writes. Any personal-library link to a quarantined row is removed and journaled
 by the importer.
 
+The 2026-07-13 Bojangles rollout used the same guarded path. The locked
+`rollout_backup_20260713_bojangles_149` snapshot preserved 2,443 foods (2,436
+active), 2,339 restaurant versions (2,332 active), 485 food logs, 105
+personal-library links, 28 saved-meal item links, eleven import batches, 2,602
+provenance rows, and 2,609 transitions. The approved 149-row bridge payload was
+445,254 bytes with
+`rpc_payload_sha256=6fe8f37b67cd46e2bb91123cbed304bbab5ae24f3bbb7d54092cf23d03737e93`.
+The import inserted exactly one batch, 149 immutable food versions, 149
+provenance records, and no deactivations. Production now contains 2,592 foods
+(2,585 active), 2,488 restaurant versions with 2,481 active foods across ten
+brands, twelve batches, 2,751 provenance rows, and 2,758 transitions. The three
+user-owned table snapshots were byte-for-byte unchanged, and an exact bundle
+replay returned `IDEMPOTENT_REPLAY` with zero writes. Production search returned
+all 149 Bojangles rows for `boj`, `bojan`, `bojangles`, and whitespace-padded
+`bojangles `; `bo tato` and `cajun filet` placed the expected Bojangles item
+first. The bundle hash allowlist is removed after this verification and the
+closing deployment, so the import route is unavailable outside a reviewed
+one-payload window.
+
 Embedding generation is deliberately deferred for this rollout. Production
 search remains available through the indexed lexical side of the hybrid RPC.
 Do not treat embeddings as complete until the bounded backfill below is
@@ -277,7 +296,7 @@ bearer can therefore replay only an explicitly approved payload, and exact repla
 is a zero-write database operation. Both declared and received body sizes are
 capped at 4 MiB. A larger multi-chain transfer may be split only at whole-chain
 batch boundaries: every batch is a complete chain snapshot, and splitting one
-chain would make omitted items look deleted and deactivate them. All eleven
+chain would make omitted items look deleted and deactivate them. All twelve
 accepted per-chain batch payloads fit individually. The route never logs or
 returns the secret, hash, or request payload, disables caching, calls the
 service-role RPC exactly once, and returns only its result or a bounded public
