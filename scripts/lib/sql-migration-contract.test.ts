@@ -195,6 +195,26 @@ test("new chain snapshots are unique, monotonic, clock-bounded, and replay-first
     2,
     "serving grams must be canonicalized to the live foods column scale before replay comparison",
   );
+  assert.equal(
+    [...sql.matchAll(/^\s+(?:calories|protein|total_fat|saturated_fat|sodium|total_carbohydrates|fiber|sugar|trans_fat|polyunsaturated_fat|monounsaturated_fat|added_sugar|vitamin_a|vitamin_c|vitamin_d|calcium|iron) numeric\(8,\s*2\)(?: NOT NULL)?,/gm)].length,
+    34,
+    "scaled nutrition numbers must be canonicalized to the live foods scale before replay comparison",
+  );
+  assert.equal(
+    [...sql.matchAll(/^\s+cholesterol numeric(?: NOT NULL)?,/gm)].length,
+    2,
+    "cholesterol must retain the live legacy unrestricted numeric domain during replay comparison",
+  );
+  assert.match(
+    sql,
+    /nullif\(food\.source_external_id, ''\)/,
+    "empty optional source identifiers must be canonicalized before persistence",
+  );
+  assert.match(
+    sql,
+    /nullif\(existing\.source_external_id, ''\) IS DISTINCT FROM incoming\.source_external_id/,
+    "legacy empty optional source identifiers must replay as canonical nulls",
+  );
   assert.match(sql, /approved_at > transaction_timestamp\(\) \+ interval '10 minutes'/);
   assert.match(sql, /incoming\.approved_at <= coalesce\(\([\s\S]*max\(existing\.approved_at\)/);
   const replay = sql.indexOf("A complete exact replay is a zero-write result");

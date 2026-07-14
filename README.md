@@ -213,6 +213,38 @@ first. The bundle hash allowlist is removed after this verification and the
 closing deployment, so the import route is unavailable outside a reviewed
 one-payload window.
 
+The 2026-07-13 all-restaurants completion rollout imported every remaining
+frontier-approved collector result. The locked
+`rollout_backup_20260713_all_restaurants_37` snapshot preserved 2,592 foods
+(2,585 active), 2,481 active restaurant foods and seven inactive quarantined
+versions, 485 food logs, 105 personal-library links, 28 saved-meal item links,
+12 batches, 2,751 provenance rows, and 2,758 transitions. Thirty-seven
+individually hash-allowlisted bundles contained 10,921 complete active menu rows;
+their transfer-set aggregate SHA-256 is
+`e070be4b754b1afa9632bafdea5b061d1bb80606fb4e3f90aa81320fd44e08fe`.
+Every per-chain payload remained below the four-MiB bridge limit.
+
+Relative to that snapshot, the rollout added 8,440 immutable foods, 27 batches,
+8,440 provenance rows, and 8,440 transitions with no deactivations. Production
+now contains 11,032 foods (11,025 active), including exactly 10,921 active
+restaurant foods across all 37 brands and seven deliberately inactive legacy
+versions; it retains 39 batches, 11,191 provenance rows, and 11,198 transitions.
+No baseline food row changed or disappeared, and food logs, personal-library
+links, saved-meal item links, and the empty library-transition journal are
+unchanged from the locked snapshot. A second bridge pass over all 37 bundles
+returned `IDEMPOTENT_REPLAY` with zero catalog writes for every chain.
+
+The replay audit found and fixed two receiver-domain mismatches without weakening
+the immutable-content guard: cholesterol retains the live legacy unrestricted
+`numeric` domain, and an empty optional source identifier canonicalizes to
+`null`. Mismatch errors now identify the logical food identity and differing
+field for operator diagnostics. Production search returned complete paginated
+menus for partial and normalized queries including `qd`, `Qdob`, `chipotle `,
+`red rob`, `starb`, `tacobell`, and `whatab`; database checks found zero chain
+count mismatches, duplicate active identities, provenance orphans, or transition
+orphans. The payload allowlist is removed for the closing deployment so the
+bridge is unavailable until a future reviewed import window.
+
 Embedding generation is deliberately deferred for this rollout. Production
 search remains available through the indexed lexical side of the hybrid RPC.
 Do not treat embeddings as complete until the bounded backfill below is
@@ -296,7 +328,7 @@ bearer can therefore replay only an explicitly approved payload, and exact repla
 is a zero-write database operation. Both declared and received body sizes are
 capped at 4 MiB. A larger multi-chain transfer may be split only at whole-chain
 batch boundaries: every batch is a complete chain snapshot, and splitting one
-chain would make omitted items look deleted and deactivate them. All twelve
+chain would make omitted items look deleted and deactivate them. All 37 current
 accepted per-chain batch payloads fit individually. The route never logs or
 returns the secret, hash, or request payload, disables caching, calls the
 service-role RPC exactly once, and returns only its result or a bounded public
@@ -315,11 +347,15 @@ Contract-v1 operator rule: `content_hash` covers serving and the core mapped
 nutrients. A change to grams, optional nutrients, or display metadata under the
 same source identity/hash is deliberately rejected by the full-row collision
 check. That rejection is not an outage to bypass; it requires a contract-v2
-definition and a regenerated, revalidated bundle. `serving_size_grams` is
-canonicalized to the live `numeric(10,2)` storage domain before immutable replay
-comparison. Sub-0.01 g precision is intentionally outside the catalog's serving
-conversion column; retain the approved transfer bundle as the exact source
-artifact.
+definition and a regenerated, revalidated bundle. The receiver canonicalizes
+`serving_size_grams` to live `numeric(10,2)`, cholesterol to its legacy
+unrestricted `numeric` domain, and all other persisted nutrition values to live
+`numeric(8,2)` before both insertion and immutable replay comparison. Optional
+source identifiers also canonicalize a legacy empty string to `null`, so the two
+representations of "not supplied" replay identically while non-empty identifiers
+remain immutable.
+Sub-0.01 precision is intentionally outside those catalog columns; retain the
+approved transfer bundle as the exact source artifact.
 
 ## Production embedding backfill
 

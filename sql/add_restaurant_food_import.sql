@@ -270,6 +270,8 @@ DECLARE
   transition_count integer := 0;
   migrated_library_count integer := 0;
   removed_library_count integer := 0;
+  immutable_mismatch_identity text;
+  immutable_mismatch_fields text[];
 BEGIN
   IF bundle IS NULL OR jsonb_typeof(bundle) <> 'object' THEN
     RAISE EXCEPTION 'bundle must be a JSON object' USING ERRCODE = '22023';
@@ -436,27 +438,28 @@ BEGIN
     source_category text,
     variant_label text,
     serving_size text NOT NULL,
-    -- Match foods.serving_size_grams numeric(10,2) before immutable replay
-    -- comparisons so database scale canonicalization is deterministic.
+    -- Match every live foods numeric persistence domain before immutable replay
+    -- comparisons so insertion-time scale canonicalization is deterministic.
+    -- Cholesterol is the one legacy unrestricted numeric column.
     serving_size_grams numeric(10,2),
-    calories numeric NOT NULL,
-    protein numeric NOT NULL,
-    total_fat numeric NOT NULL,
-    saturated_fat numeric NOT NULL,
+    calories numeric(8,2) NOT NULL,
+    protein numeric(8,2) NOT NULL,
+    total_fat numeric(8,2) NOT NULL,
+    saturated_fat numeric(8,2) NOT NULL,
     cholesterol numeric NOT NULL,
-    sodium numeric NOT NULL,
-    total_carbohydrates numeric NOT NULL,
-    fiber numeric NOT NULL,
-    sugar numeric NOT NULL,
-    trans_fat numeric,
-    polyunsaturated_fat numeric,
-    monounsaturated_fat numeric,
-    added_sugar numeric,
-    vitamin_a numeric,
-    vitamin_c numeric,
-    vitamin_d numeric,
-    calcium numeric,
-    iron numeric,
+    sodium numeric(8,2) NOT NULL,
+    total_carbohydrates numeric(8,2) NOT NULL,
+    fiber numeric(8,2) NOT NULL,
+    sugar numeric(8,2) NOT NULL,
+    trans_fat numeric(8,2),
+    polyunsaturated_fat numeric(8,2),
+    monounsaturated_fat numeric(8,2),
+    added_sugar numeric(8,2),
+    vitamin_a numeric(8,2),
+    vitamin_c numeric(8,2),
+    vitamin_d numeric(8,2),
+    calcium numeric(8,2),
+    iron numeric(8,2),
     source_external_id text,
     source_identity_key text NOT NULL,
     content_hash text NOT NULL,
@@ -493,7 +496,7 @@ BEGIN
     food.vitamin_d,
     food.calcium,
     food.iron,
-    food.source_external_id,
+    nullif(food.source_external_id, ''),
     food.source_identity_key,
     food.content_hash,
     food.verified_at
@@ -506,24 +509,24 @@ BEGIN
     variant_label text,
     serving_size text,
     serving_size_grams numeric(10,2),
-    calories numeric,
-    protein numeric,
-    total_fat numeric,
-    saturated_fat numeric,
+    calories numeric(8,2),
+    protein numeric(8,2),
+    total_fat numeric(8,2),
+    saturated_fat numeric(8,2),
     cholesterol numeric,
-    sodium numeric,
-    total_carbohydrates numeric,
-    fiber numeric,
-    sugar numeric,
-    trans_fat numeric,
-    polyunsaturated_fat numeric,
-    monounsaturated_fat numeric,
-    added_sugar numeric,
-    vitamin_a numeric,
-    vitamin_c numeric,
-    vitamin_d numeric,
-    calcium numeric,
-    iron numeric,
+    sodium numeric(8,2),
+    total_carbohydrates numeric(8,2),
+    fiber numeric(8,2),
+    sugar numeric(8,2),
+    trans_fat numeric(8,2),
+    polyunsaturated_fat numeric(8,2),
+    monounsaturated_fat numeric(8,2),
+    added_sugar numeric(8,2),
+    vitamin_a numeric(8,2),
+    vitamin_c numeric(8,2),
+    vitamin_d numeric(8,2),
+    calcium numeric(8,2),
+    iron numeric(8,2),
     source_external_id text,
     source_identity_key text,
     content_hash text,
@@ -737,7 +740,8 @@ BEGIN
 
   -- Existing immutable keys must mean the exact same audited batch/version.
   -- Supplemental values are compared after normalization to their live
-  -- persistence domains (notably serving_size_grams numeric(10,2)).
+  -- persistence domains (serving_size_grams numeric(10,2), cholesterol
+  -- unrestricted numeric, and every other nutrition value numeric(8,2)).
   IF EXISTS (
     SELECT 1
     FROM public.food_import_batches existing
@@ -761,8 +765,39 @@ BEGIN
   -- these supplemental fields as immutable for an identity/content pair. If an
   -- exporter must change one without changing that v1 hash input, it requires a
   -- new transfer-contract version rather than an in-place database mutation.
-  IF EXISTS (
-    SELECT 1
+  SELECT
+    incoming.source_identity_key,
+    array_remove(ARRAY[
+      CASE WHEN existing.source IS DISTINCT FROM 'restaurant_official' THEN 'source' END,
+      CASE WHEN existing.name IS DISTINCT FROM incoming.name THEN 'name' END,
+      CASE WHEN existing.brand IS DISTINCT FROM incoming.brand THEN 'brand' END,
+      CASE WHEN existing.brand_slug IS DISTINCT FROM incoming.brand_slug THEN 'brand_slug' END,
+      CASE WHEN existing.search_aliases IS DISTINCT FROM incoming.search_aliases THEN 'search_aliases' END,
+      CASE WHEN existing.source_category IS DISTINCT FROM incoming.source_category THEN 'source_category' END,
+      CASE WHEN existing.variant_label IS DISTINCT FROM incoming.variant_label THEN 'variant_label' END,
+      CASE WHEN existing.serving_size IS DISTINCT FROM incoming.serving_size THEN 'serving_size' END,
+      CASE WHEN existing.serving_size_grams IS DISTINCT FROM incoming.serving_size_grams THEN 'serving_size_grams' END,
+      CASE WHEN existing.calories IS DISTINCT FROM incoming.calories THEN 'calories' END,
+      CASE WHEN existing.protein IS DISTINCT FROM incoming.protein THEN 'protein' END,
+      CASE WHEN existing.total_fat IS DISTINCT FROM incoming.total_fat THEN 'total_fat' END,
+      CASE WHEN existing.saturated_fat IS DISTINCT FROM incoming.saturated_fat THEN 'saturated_fat' END,
+      CASE WHEN existing.cholesterol IS DISTINCT FROM incoming.cholesterol THEN 'cholesterol' END,
+      CASE WHEN existing.sodium IS DISTINCT FROM incoming.sodium THEN 'sodium' END,
+      CASE WHEN existing.total_carbohydrates IS DISTINCT FROM incoming.total_carbohydrates THEN 'total_carbohydrates' END,
+      CASE WHEN existing.fiber IS DISTINCT FROM incoming.fiber THEN 'fiber' END,
+      CASE WHEN existing.sugar IS DISTINCT FROM incoming.sugar THEN 'sugar' END,
+      CASE WHEN existing.trans_fat IS DISTINCT FROM incoming.trans_fat THEN 'trans_fat' END,
+      CASE WHEN existing.polyunsaturated_fat IS DISTINCT FROM incoming.polyunsaturated_fat THEN 'polyunsaturated_fat' END,
+      CASE WHEN existing.monounsaturated_fat IS DISTINCT FROM incoming.monounsaturated_fat THEN 'monounsaturated_fat' END,
+      CASE WHEN existing.added_sugar IS DISTINCT FROM incoming.added_sugar THEN 'added_sugar' END,
+      CASE WHEN existing.vitamin_a IS DISTINCT FROM incoming.vitamin_a THEN 'vitamin_a' END,
+      CASE WHEN existing.vitamin_c IS DISTINCT FROM incoming.vitamin_c THEN 'vitamin_c' END,
+      CASE WHEN existing.vitamin_d IS DISTINCT FROM incoming.vitamin_d THEN 'vitamin_d' END,
+      CASE WHEN existing.calcium IS DISTINCT FROM incoming.calcium THEN 'calcium' END,
+      CASE WHEN existing.iron IS DISTINCT FROM incoming.iron THEN 'iron' END,
+      CASE WHEN nullif(existing.source_external_id, '') IS DISTINCT FROM incoming.source_external_id THEN 'source_external_id' END
+    ], NULL)
+  INTO immutable_mismatch_identity, immutable_mismatch_fields
     FROM public.foods existing
     JOIN pg_temp.restaurant_food_stage incoming USING (source_identity_key, content_hash)
     WHERE existing.source <> 'restaurant_official'
@@ -775,7 +810,7 @@ BEGIN
          existing.sugar, existing.trans_fat, existing.polyunsaturated_fat,
          existing.monounsaturated_fat, existing.added_sugar, existing.vitamin_a,
          existing.vitamin_c, existing.vitamin_d, existing.calcium, existing.iron,
-         existing.source_external_id
+         nullif(existing.source_external_id, '')
        ) IS DISTINCT FROM ROW(
          incoming.name, incoming.brand, incoming.brand_slug, incoming.search_aliases,
          incoming.source_category, incoming.variant_label, incoming.serving_size,
@@ -787,8 +822,12 @@ BEGIN
          incoming.vitamin_c, incoming.vitamin_d, incoming.calcium, incoming.iron,
          incoming.source_external_id
        )
-  ) THEN
-    RAISE EXCEPTION 'v1 content hash resolves to different immutable food values; contract upgrade required'
+    ORDER BY incoming.source_identity_key
+    LIMIT 1;
+
+  IF immutable_mismatch_identity IS NOT NULL THEN
+    RAISE EXCEPTION 'v1 content hash resolves to different immutable food values for identity % (fields: %); contract upgrade required',
+      immutable_mismatch_identity, array_to_string(immutable_mismatch_fields, ',')
       USING ERRCODE = '23505';
   END IF;
 
