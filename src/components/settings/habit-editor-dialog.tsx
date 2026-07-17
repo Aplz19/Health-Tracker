@@ -153,14 +153,14 @@ export function HabitEditorDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent fullscreenOnMobile className="sm:max-w-md">
-        <DialogHeader className="border-b px-4 py-4 sm:border-0 sm:p-0">
+        <DialogHeader className="flex-shrink-0 border-b px-4 py-3 pr-12 text-left sm:px-6">
           <DialogTitle className="flex items-center gap-2">
             {!isNew && <HabitIcon habit={habit} />}
             {isNew ? "New Habit" : `Edit ${habit.name}`}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 space-y-6 overflow-y-auto p-4 sm:p-0 sm:pt-2">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:px-6">
           {/* Identity: emoji + name */}
           <div className="space-y-2">
             <Label htmlFor="habit-name">Name</Label>
@@ -327,7 +327,7 @@ export function HabitEditorDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-2 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:border-0 sm:p-0 sm:pt-4">
+        <div className="flex flex-shrink-0 items-center gap-2 border-t px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
           {!isNew && v2Available && (
             <Button
               type="button"
