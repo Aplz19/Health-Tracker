@@ -102,6 +102,19 @@ export interface WhoopSummary {
   max_heart_rate: number | null;
 }
 
+// Habits v2. One entry per ENABLED habit; `value` is null when nothing was
+// logged that day (sparse truth - unlogged is NA, never zero/false, so
+// downstream analytics must exclude nulls instead of treating them as 0).
+export interface HabitSummaryEntry {
+  habit_key: string;
+  name: string;
+  kind: "checkbox" | "number" | "scale" | "choice";
+  unit: string;
+  goal: number | null;
+  logged: boolean;
+  value: boolean | number | string | null;
+}
+
 export interface DailySummaryData {
   date: string;
   totals: DailySummaryTotals;
@@ -109,6 +122,9 @@ export interface DailySummaryData {
   supplements: SupplementsSummary;
   workout: WorkoutSummary;
   whoop: WhoopSummary | null;
+  // Optional: absent on summaries generated before habits v2.
+  habits?: HabitSummaryEntry[];
+  day_note?: string | null;
 }
 
 export interface DailySummary {

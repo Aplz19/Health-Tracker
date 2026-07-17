@@ -22,45 +22,34 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
-import { GripVertical, Settings2 } from "lucide-react";
+import { GripVertical, ChevronRight, Plus } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useHabitPreferencesContext } from "@/contexts/habit-preferences-context";
-import type { UserHabit } from "@/types/habits";
+import { HabitIcon } from "@/components/habits/habit-icon";
+import { HabitEditorDialog } from "./habit-editor-dialog";
+import type { ResolvedHabit } from "@/types/habits";
 
-// Sortable habit row for enabled habits
+const KIND_LABELS: Record<ResolvedHabit["valueKind"], string> = {
+  checkbox: "checkbox",
+  number: "number",
+  scale: "scale 1-5",
+  choice: "choice",
+};
+
+// Sortable row for enabled habits. The whole row (except grip + switch)
+// opens the full-screen editor - no tiny gear target.
 function SortableHabitRow({
   habit,
   onToggle,
-  onConfigure,
+  onEdit,
 }: {
-  habit: UserHabit;
+  habit: ResolvedHabit;
   onToggle: (enabled: boolean) => void;
-  onConfigure: () => void;
+  onEdit: () => void;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: habit.definition.key });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: habit.key });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -68,171 +57,73 @@ function SortableHabitRow({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const Icon = habit.definition.icon;
-
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center justify-between rounded-lg border bg-card px-3 py-2"
+      className="flex min-h-[52px] items-center justify-between rounded-lg border bg-card px-3 py-2"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-1 items-center gap-1 overflow-hidden">
         <button
-          className="cursor-grab touch-none p-1 text-muted-foreground hover:text-foreground"
+          className="cursor-grab touch-none p-2 text-muted-foreground hover:text-foreground"
+          aria-label={`Reorder ${habit.name}`}
           {...attributes}
           {...listeners}
         >
           <GripVertical className="h-4 w-4" />
         </button>
-        <Icon className={`h-5 w-5 ${habit.definition.color}`} />
-        <span className="font-medium">{habit.definition.label}</span>
-        <span className="text-xs text-muted-foreground capitalize">
-          ({habit.trackingMode})
-        </span>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={onConfigure}
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex min-h-11 flex-1 items-center gap-2 overflow-hidden text-left"
         >
-          <Settings2 className="h-4 w-4" />
-        </Button>
-        <Switch checked={habit.isEnabled} onCheckedChange={onToggle} />
+          <HabitIcon habit={habit} />
+          <span className="truncate font-medium">{habit.name}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            ({KIND_LABELS[habit.valueKind]})
+          </span>
+          <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
       </div>
+      <Switch
+        checked={habit.isEnabled}
+        onCheckedChange={onToggle}
+        aria-label={`Toggle ${habit.name}`}
+        className="ml-2"
+      />
     </div>
   );
 }
 
-// Regular habit row for disabled habits
-function HabitRow({
+// Row for disabled (available) habits
+function DisabledHabitRow({
   habit,
   onToggle,
+  onEdit,
 }: {
-  habit: UserHabit;
+  habit: ResolvedHabit;
   onToggle: (enabled: boolean) => void;
+  onEdit: () => void;
 }) {
-  const Icon = habit.definition.icon;
-
   return (
-    <div className="flex items-center justify-between rounded-lg border bg-card px-3 py-2 opacity-60">
-      <div className="flex items-center gap-2 pl-7">
-        <Icon className={`h-5 w-5 ${habit.definition.color}`} />
-        <span className="font-medium">{habit.definition.label}</span>
-      </div>
-      <Switch checked={habit.isEnabled} onCheckedChange={onToggle} />
+    <div className="flex min-h-[52px] items-center justify-between rounded-lg border bg-card px-3 py-2 opacity-60">
+      <button
+        type="button"
+        onClick={onEdit}
+        className="flex min-h-11 flex-1 items-center gap-2 pl-9 text-left"
+      >
+        <HabitIcon habit={habit} />
+        <span className="truncate font-medium">{habit.name}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          ({KIND_LABELS[habit.valueKind]})
+        </span>
+      </button>
+      <Switch
+        checked={habit.isEnabled}
+        onCheckedChange={onToggle}
+        aria-label={`Toggle ${habit.name}`}
+      />
     </div>
-  );
-}
-
-// Configuration dialog for habit settings
-function HabitConfigDialog({
-  habitKey,
-  open,
-  onOpenChange,
-}: {
-  habitKey: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const { getAllHabits, setTrackingMode, setGoalAmount } = useHabitPreferencesContext();
-  const habit = getAllHabits().find((item) => item.definition.key === habitKey);
-  const [localGoal, setLocalGoal] = useState(
-    () => habit?.goalAmount.toString() ?? ""
-  );
-
-  if (!habit) return null;
-
-  const Icon = habit.definition.icon;
-
-  const handleModeChange = (mode: "checkbox" | "goal" | "manual") => {
-    setTrackingMode(habit.definition.key, mode);
-  };
-
-  const handleGoalBlur = () => {
-    const numValue = parseFloat(localGoal) || habit.definition.defaultGoal;
-    setGoalAmount(habit.definition.key, numValue);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Icon className={`h-5 w-5 ${habit.definition.color}`} />
-            {habit.definition.label} Settings
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4 pt-2">
-          <div className="space-y-2">
-            <Label>Tracking Mode</Label>
-            <Select
-              value={habit.trackingMode}
-              onValueChange={(v) => handleModeChange(v as "checkbox" | "goal" | "manual")}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="checkbox">
-                  <div className="flex flex-col items-start">
-                    <span>Checkbox</span>
-                    <span className="text-xs text-muted-foreground">
-                      Simple done/not done
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="goal">
-                  <div className="flex flex-col items-start">
-                    <span>Goal</span>
-                    <span className="text-xs text-muted-foreground">
-                      Checkbox that logs a specific amount
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="manual">
-                  <div className="flex flex-col items-start">
-                    <span>Manual</span>
-                    <span className="text-xs text-muted-foreground">
-                      Enter the exact amount
-                    </span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {(habit.trackingMode === "goal" || habit.trackingMode === "manual") && (
-            <div className="space-y-2">
-              <Label>
-                {habit.trackingMode === "goal" ? "Goal Amount" : "Default Goal"}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={localGoal}
-                  onChange={(e) => setLocalGoal(e.target.value)}
-                  onBlur={handleGoalBlur}
-                  className="w-24"
-                  min={1}
-                  step={habit.definition.step}
-                />
-                <span className="text-sm text-muted-foreground">
-                  {habit.definition.unit}
-                </span>
-              </div>
-              {habit.trackingMode === "goal" && (
-                <p className="text-xs text-muted-foreground">
-                  Checking the box will log this amount
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -242,27 +133,18 @@ export function HabitsSettings() {
     getEnabledHabits,
     toggleHabit,
     reorderHabits,
+    v2Available,
     isLoading,
   } = useHabitPreferencesContext();
 
-  const [configHabitKey, setConfigHabitKey] = useState<string | null>(null);
+  // string = editing that key; "new" = creating; null = closed
+  const [editorTarget, setEditorTarget] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 200,
-        tolerance: 5,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
   const allHabits = getAllHabits();
@@ -276,23 +158,21 @@ export function HabitsSettings() {
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveId(null);
     const { active, over } = event;
-
     if (over && active.id !== over.id) {
-      const oldIndex = enabledHabits.findIndex(
-        (h) => h.definition.key === active.id
-      );
-      const newIndex = enabledHabits.findIndex(
-        (h) => h.definition.key === over.id
-      );
-
+      const oldIndex = enabledHabits.findIndex((h) => h.key === active.id);
+      const newIndex = enabledHabits.findIndex((h) => h.key === over.id);
       const newOrder = arrayMove(enabledHabits, oldIndex, newIndex);
-      reorderHabits(newOrder.map((h) => h.definition.key));
+      reorderHabits(newOrder.map((h) => h.key));
     }
   };
 
   const activeHabit = activeId
-    ? enabledHabits.find((h) => h.definition.key === activeId)
+    ? enabledHabits.find((h) => h.key === activeId)
     : null;
+  const editingHabit =
+    editorTarget && editorTarget !== "new"
+      ? allHabits.find((h) => h.key === editorTarget) ?? null
+      : null;
 
   if (isLoading) {
     return (
@@ -304,10 +184,28 @@ export function HabitsSettings() {
 
   return (
     <div className="space-y-4">
+      {v2Available ? (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setEditorTarget("new")}
+          className="h-11 w-full border-dashed"
+        >
+          <Plus className="h-4 w-4" />
+          New Habit
+        </Button>
+      ) : (
+        <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+          Custom habits, 1-5 scales, and choice types unlock once{" "}
+          <code>sql/add_habits_v2.sql</code> is applied in Supabase. Until then
+          the built-in list below works as before.
+        </p>
+      )}
+
       <div>
-        <h3 className="text-sm font-medium mb-2">Tracked Habits</h3>
-        <p className="text-xs text-muted-foreground mb-3">
-          Drag to reorder. Tap the gear to configure tracking mode.
+        <h3 className="mb-2 text-sm font-medium">Tracked Habits</h3>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Drag to reorder. Tap a habit to edit it.
         </p>
 
         {enabledHabits.length === 0 ? (
@@ -325,48 +223,36 @@ export function HabitsSettings() {
             modifiers={[restrictToVerticalAxis, restrictToParentElement]}
           >
             <SortableContext
-              items={enabledHabits.map((h) => h.definition.key)}
+              items={enabledHabits.map((h) => h.key)}
               strategy={verticalListSortingStrategy}
             >
               <div className="space-y-2">
                 {enabledHabits.map((habit) => (
                   <SortableHabitRow
-                    key={habit.definition.key}
+                    key={habit.key}
                     habit={habit}
-                    onToggle={(enabled) =>
-                      toggleHabit(habit.definition.key, enabled)
-                    }
-                    onConfigure={() => setConfigHabitKey(habit.definition.key)}
+                    onToggle={(enabled) => toggleHabit(habit.key, enabled)}
+                    onEdit={() => setEditorTarget(habit.key)}
                   />
                 ))}
               </div>
             </SortableContext>
             <DragOverlay>
-              {activeHabit ? (() => {
-                const Icon = activeHabit.definition.icon;
-                return (
-                  <div className="flex items-center justify-between rounded-lg border bg-card px-3 py-2 shadow-lg">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1 text-muted-foreground">
-                        <GripVertical className="h-4 w-4" />
-                      </div>
-                      <Icon className={`h-5 w-5 ${activeHabit.definition.color}`} />
-                      <span className="font-medium">
-                        {activeHabit.definition.label}
-                      </span>
-                      <span className="text-xs text-muted-foreground capitalize">
-                        ({activeHabit.trackingMode})
-                      </span>
+              {activeHabit ? (
+                <div className="flex min-h-[52px] items-center justify-between rounded-lg border bg-card px-3 py-2 shadow-lg">
+                  <div className="flex items-center gap-1">
+                    <div className="p-2 text-muted-foreground">
+                      <GripVertical className="h-4 w-4" />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <Settings2 className="h-4 w-4" />
-                      </Button>
-                      <Switch checked={activeHabit.isEnabled} />
-                    </div>
+                    <HabitIcon habit={activeHabit} />
+                    <span className="font-medium">{activeHabit.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({KIND_LABELS[activeHabit.valueKind]})
+                    </span>
                   </div>
-                );
-              })() : null}
+                  <Switch checked={activeHabit.isEnabled} />
+                </div>
+              ) : null}
             </DragOverlay>
           </DndContext>
         )}
@@ -374,27 +260,26 @@ export function HabitsSettings() {
 
       {disabledHabits.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium mb-2">Available Habits</h3>
+          <h3 className="mb-2 text-sm font-medium">Available Habits</h3>
           <div className="space-y-2">
             {disabledHabits.map((habit) => (
-              <HabitRow
-                key={habit.definition.key}
+              <DisabledHabitRow
+                key={habit.key}
                 habit={habit}
-                onToggle={(enabled) =>
-                  toggleHabit(habit.definition.key, enabled)
-                }
+                onToggle={(enabled) => toggleHabit(habit.key, enabled)}
+                onEdit={() => setEditorTarget(habit.key)}
               />
             ))}
           </div>
         </div>
       )}
 
-      {configHabitKey && (
-        <HabitConfigDialog
-          key={configHabitKey}
-          habitKey={configHabitKey}
+      {editorTarget && (
+        <HabitEditorDialog
+          key={editorTarget}
+          habit={editingHabit}
           open
-          onOpenChange={(open) => !open && setConfigHabitKey(null)}
+          onOpenChange={(open) => !open && setEditorTarget(null)}
         />
       )}
     </div>

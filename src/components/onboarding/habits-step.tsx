@@ -33,15 +33,15 @@ export function HabitsStep({ onNext, isLastStep }: HabitsStepProps) {
         </p>
       </div>
 
-      {/* Coming soon notice */}
+      {/* Feature intro */}
       <div className="bg-muted/50 rounded-lg p-6 space-y-4">
         <div className="flex items-center justify-center gap-2 text-primary">
           <Sparkles className="w-5 h-5" />
-          <span className="font-medium">Coming Soon!</span>
+          <span className="font-medium">Make it yours</span>
         </div>
         <p className="text-sm text-muted-foreground text-center">
-          Custom habit tracking is being built. You&apos;ll be able to create and track
-          your own daily habits like these:
+          Create your own habits in Settings &gt; Habits - checkboxes, amounts
+          with goals, 1-5 ratings, or pick-one choices. For example:
         </p>
 
         {/* Preview habits grid */}

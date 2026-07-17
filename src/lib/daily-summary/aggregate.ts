@@ -1,4 +1,12 @@
 import { getServerSupabase } from "@/lib/supabase/server";
+import {
+  enabledSorted,
+  interpretLog,
+  isMissingSchemaError,
+  resolveFromLegacy,
+  resolveFromV2,
+} from "@/lib/habits/logic";
+import type { HabitLog, HabitPreference, UserHabitRow } from "@/types/habits";
 import type {
   DailySummaryData,
   DailySummaryTotals,
@@ -9,6 +17,7 @@ import type {
   ExerciseSummary,
   TreadmillSummary,
   WhoopSummary,
+  HabitSummaryEntry,
 } from "./types";
 
 // Format time as "8:30 AM"
@@ -245,6 +254,61 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
       }
     : null;
 
+  // Habits + day note (habits v2). Sparse truth: every ENABLED habit gets an
+  // entry; value stays null when nothing was logged that day. Falls back to
+  // the legacy preferences path while add_habits_v2.sql is unapplied, and
+  // omits the note (table won't exist yet).
+  const [habitLogsResult, userHabitsResult, noteResult] = await Promise.all([
+    supabase.from("habit_logs").select("*").eq("date", date).eq("user_id", userId),
+    supabase
+      .from("user_habits")
+      .select("*")
+      .eq("user_id", userId)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("daily_notes")
+      .select("note")
+      .eq("date", date)
+      .eq("user_id", userId)
+      .single(),
+  ]);
+
+  let enabledHabits;
+  if (!userHabitsResult.error) {
+    enabledHabits = enabledSorted(
+      resolveFromV2((userHabitsResult.data as UserHabitRow[]) || [])
+    );
+  } else if (isMissingSchemaError(userHabitsResult.error)) {
+    const { data: prefs } = await supabase
+      .from("user_habit_preferences")
+      .select("*")
+      .eq("user_id", userId);
+    enabledHabits = enabledSorted(
+      resolveFromLegacy((prefs as HabitPreference[]) || [])
+    );
+  } else {
+    throw userHabitsResult.error;
+  }
+
+  const habitLogs = (habitLogsResult.data as HabitLog[]) || [];
+  const habits: HabitSummaryEntry[] = enabledHabits.map((habit) => {
+    const log = habitLogs.find((l) => l.habit_key === habit.key);
+    const interpreted = interpretLog(habit.valueKind, log);
+    return {
+      habit_key: habit.key,
+      name: habit.name,
+      kind: habit.valueKind,
+      unit: habit.unit,
+      goal: habit.goalAmount,
+      logged: interpreted.logged,
+      value: interpreted.value,
+    };
+  });
+
+  const day_note: string | null = !noteResult.error
+    ? ((noteResult.data?.note as string) || null)
+    : null;
+
   return {
     date,
     totals,
@@ -252,6 +316,8 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
     supplements,
     workout,
     whoop,
+    habits,
+    day_note,
   };
 }
 

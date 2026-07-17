@@ -11,119 +11,42 @@ import {
   UtensilsCrossed,
   Calculator,
   Layers,
+  type LucideIcon,
 } from "lucide-react";
 import type { HabitDefinition } from "@/types/habits";
+import { BUILTIN_HABIT_META } from "./meta";
 
-export const HABIT_DEFINITIONS: HabitDefinition[] = [
-  {
-    key: "meditation",
-    label: "Meditation",
-    unit: "min",
-    icon: Brain,
-    color: "text-purple-500",
-    defaultGoal: 15,
-    step: 5,
-  },
-  {
-    key: "reading",
-    label: "Reading",
-    unit: "min",
-    icon: BookOpen,
-    color: "text-blue-500",
-    defaultGoal: 30,
-    step: 5,
-  },
-  {
-    key: "sauna",
-    label: "Sauna",
-    unit: "min",
-    icon: Flame,
-    color: "text-orange-500",
-    defaultGoal: 20,
-    step: 5,
-  },
-  {
-    key: "thc",
-    label: "THC",
-    unit: "uses",
-    icon: Cannabis,
-    color: "text-green-500",
-    defaultGoal: 1,
-    step: 1,
-  },
-  {
-    key: "alcohol",
-    label: "Alcohol",
-    unit: "drinks",
-    icon: Wine,
-    color: "text-red-500",
-    defaultGoal: 2,
-    step: 1,
-  },
-  {
-    key: "cold_shower",
-    label: "Cold Shower",
-    unit: "min",
-    icon: Snowflake,
-    color: "text-cyan-500",
-    defaultGoal: 3,
-    step: 1,
-  },
-  {
-    key: "nicotine",
-    label: "Nicotine",
-    unit: "uses",
-    icon: Cigarette,
-    color: "text-gray-500",
-    defaultGoal: 1,
-    step: 1,
-  },
-  {
-    key: "energy_drink",
-    label: "Energy Drink",
-    unit: "drinks",
-    icon: Zap,
-    color: "text-yellow-500",
-    defaultGoal: 1,
-    step: 1,
-  },
-  {
-    key: "coffee",
-    label: "Coffee",
-    unit: "cups",
-    icon: Coffee,
-    color: "text-amber-700",
-    defaultGoal: 2,
-    step: 1,
-  },
-  {
-    key: "ate_out",
-    label: "Ate Out",
-    unit: "meals",
-    icon: UtensilsCrossed,
-    color: "text-rose-500",
-    defaultGoal: 1,
-    step: 1,
-  },
-  {
-    key: "math_academy",
-    label: "Math Academy",
-    unit: "XP",
-    icon: Calculator,
-    color: "text-indigo-500",
-    defaultGoal: 100,
-    step: 10,
-  },
-  {
-    key: "anki_review",
-    label: "Anki Review",
-    unit: "cards",
-    icon: Layers,
-    color: "text-sky-500",
-    defaultGoal: 50,
-    step: 10,
-  },
-];
+// Client-side presentation for the built-in habits. The data (name, unit,
+// goals) lives icon-free in meta.ts so server code can use it; this module
+// adds the lucide icon + color and preserves the legacy HABIT_DEFINITIONS
+// shape used by the pre-v2 fallback path.
+
+const BUILTIN_ICONS: Record<string, { icon: LucideIcon; color: string }> = {
+  meditation: { icon: Brain, color: "text-purple-500" },
+  reading: { icon: BookOpen, color: "text-blue-500" },
+  sauna: { icon: Flame, color: "text-orange-500" },
+  thc: { icon: Cannabis, color: "text-green-500" },
+  alcohol: { icon: Wine, color: "text-red-500" },
+  cold_shower: { icon: Snowflake, color: "text-cyan-500" },
+  nicotine: { icon: Cigarette, color: "text-gray-500" },
+  energy_drink: { icon: Zap, color: "text-yellow-500" },
+  coffee: { icon: Coffee, color: "text-amber-700" },
+  ate_out: { icon: UtensilsCrossed, color: "text-rose-500" },
+  math_academy: { icon: Calculator, color: "text-indigo-500" },
+  anki_review: { icon: Layers, color: "text-sky-500" },
+};
+
+export const HABIT_DEFINITIONS: HabitDefinition[] = BUILTIN_HABIT_META.map(
+  (meta) => ({
+    key: meta.key,
+    label: meta.name,
+    unit: meta.unit,
+    icon: BUILTIN_ICONS[meta.key]?.icon ?? Brain,
+    color: BUILTIN_ICONS[meta.key]?.color ?? "text-muted-foreground",
+    defaultGoal: meta.defaultGoal,
+    step: meta.step,
+  })
+);
 
 export function getHabitByKey(key: string): HabitDefinition | undefined {
   return HABIT_DEFINITIONS.find((h) => h.key === key);

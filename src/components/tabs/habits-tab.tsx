@@ -3,199 +3,259 @@
 import { useState } from "react";
 import { useDate } from "@/contexts/date-context";
 import { format } from "date-fns";
+import { NotebookPen } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { useHabitPreferencesContext } from "@/contexts/habit-preferences-context";
 import { useHabitLogs } from "@/hooks/use-habit-logs";
-import type { UserHabit } from "@/types/habits";
+import { useDailyNote } from "@/hooks/use-daily-note";
+import { interpretLog } from "@/lib/habits/logic";
+import { HabitIcon } from "@/components/habits/habit-icon";
+import type { HabitLog, ResolvedHabit } from "@/types/habits";
 
-// Checkbox mode - just a checkbox to mark as done
-function CheckboxHabitRow({
-  habit,
-  amount,
-  onToggle,
+// ---------------------------------------------------------------------------
+// Row renderers - one per value kind. All tap targets are >= 44px.
+// ---------------------------------------------------------------------------
+
+function RowShell({
+  children,
 }: {
-  habit: UserHabit;
-  amount: number;
-  onToggle: (checked: boolean) => void;
+  children: React.ReactNode;
 }) {
-  const isChecked = amount > 0;
-  const Icon = habit.definition.icon;
-
   return (
-    <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
-      <div className="flex items-center gap-3">
-        <Checkbox
-          id={`checkbox-${habit.definition.key}`}
-          checked={isChecked}
-          onCheckedChange={(checked) => onToggle(checked === true)}
-        />
-        <label
-          htmlFor={`checkbox-${habit.definition.key}`}
-          className="flex items-center gap-2 cursor-pointer"
-        >
-          <Icon className={`h-5 w-5 ${habit.definition.color}`} />
-          <span className="font-medium">{habit.definition.label}</span>
-        </label>
-      </div>
-      {isChecked && (
-        <span className="text-sm text-green-500">Done</span>
-      )}
+    <div className="flex min-h-[52px] flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border bg-card px-4 py-3">
+      {children}
     </div>
   );
 }
 
-// Goal mode - checkbox that tracks a specific goal amount
-function GoalHabitRow({
-  habit,
-  amount,
-  onToggle,
-}: {
-  habit: UserHabit;
-  amount: number;
-  onToggle: (checked: boolean) => void;
-}) {
-  const isChecked = amount >= habit.goalAmount;
-  const Icon = habit.definition.icon;
-
+function RowLabel({ habit, htmlFor }: { habit: ResolvedHabit; htmlFor?: string }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
-      <div className="flex items-center gap-3">
-        <Checkbox
-          id={`goal-${habit.definition.key}`}
-          checked={isChecked}
-          onCheckedChange={(checked) => onToggle(checked === true)}
-        />
-        <label
-          htmlFor={`goal-${habit.definition.key}`}
-          className="flex items-center gap-2 cursor-pointer"
-        >
-          <Icon className={`h-5 w-5 ${habit.definition.color}`} />
-          <span className="font-medium">{habit.definition.label}</span>
-        </label>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className={`text-sm ${isChecked ? "text-green-500" : "text-muted-foreground"}`}>
-          {amount}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          / {habit.goalAmount} {habit.definition.unit}
-        </span>
-      </div>
-    </div>
+    <label htmlFor={htmlFor} className="flex items-center gap-2 cursor-pointer">
+      <HabitIcon habit={habit} className="h-5 w-5" />
+      <span className="font-medium">{habit.name}</span>
+    </label>
   );
 }
 
-// Manual mode - number input
-function ManualHabitRow({
+// checkbox kind: explicit did / didn't
+function CheckboxRow({
   habit,
-  amount,
-  onUpdate,
+  log,
+  onToggle,
 }: {
-  habit: UserHabit;
-  amount: number;
-  onUpdate: (value: number) => void;
+  habit: ResolvedHabit;
+  log: HabitLog | undefined;
+  onToggle: () => void;
 }) {
-  const [value, setValue] = useState(amount.toString());
-
-  const handleBlur = () => {
-    const numValue = parseFloat(value) || 0;
-    if (numValue !== amount) {
-      onUpdate(numValue);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.currentTarget.blur();
-    }
-  };
-
-  const Icon = habit.definition.icon;
+  const { value } = interpretLog("checkbox", log);
+  const isChecked = value === true;
 
   return (
-    <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
-      <div className="flex items-center gap-2">
-        <Icon className={`h-5 w-5 ${habit.definition.color}`} />
-        <span className="font-medium">{habit.definition.label}</span>
+    <RowShell>
+      <div className="flex items-center gap-3">
+        <Checkbox
+          id={`habit-${habit.key}`}
+          checked={isChecked}
+          onCheckedChange={onToggle}
+          className="h-5 w-5"
+        />
+        <RowLabel habit={habit} htmlFor={`habit-${habit.key}`} />
+      </div>
+      {isChecked && <span className="text-sm text-green-500">Done</span>}
+    </RowShell>
+  );
+}
+
+// number kind: amount input; with a goal it also gets the one-tap
+// quick-complete checkbox (the old "goal mode" behavior, preserved)
+function NumberRow({
+  habit,
+  log,
+  onQuickComplete,
+  onSetAmount,
+}: {
+  habit: ResolvedHabit;
+  log: HabitLog | undefined;
+  onQuickComplete: () => void;
+  onSetAmount: (value: number) => void;
+}) {
+  const { logged, value } = interpretLog("number", log);
+  const amount = logged && typeof value === "number" ? value : 0;
+  const hasGoal = habit.goalAmount !== null && habit.goalAmount > 0;
+  const goalMet = hasGoal && amount >= (habit.goalAmount as number);
+  // Parent keys this row by `${key}:${amount}`, so a saved amount (or a
+  // quick-complete) remounts with a fresh draft - no sync effect needed.
+  const [draft, setDraft] = useState(amount > 0 ? amount.toString() : "");
+
+  const commitDraft = () => {
+    const numValue = parseFloat(draft) || 0;
+    if (numValue !== amount) onSetAmount(numValue);
+  };
+
+  return (
+    <RowShell>
+      <div className="flex items-center gap-3">
+        {hasGoal && (
+          <Checkbox
+            id={`habit-${habit.key}`}
+            checked={goalMet}
+            onCheckedChange={onQuickComplete}
+            className="h-5 w-5"
+          />
+        )}
+        <RowLabel habit={habit} htmlFor={hasGoal ? `habit-${habit.key}` : undefined} />
       </div>
       <div className="flex items-center gap-2">
         <Input
           type="number"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          className="w-20 h-8 text-center"
+          inputMode="decimal"
+          value={draft}
+          placeholder="0"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          className="h-10 w-20 text-center"
           min={0}
-          step={habit.definition.step}
+          step={habit.step}
         />
-        <span className="text-sm text-muted-foreground w-12">
-          {habit.definition.unit}
+        <span className="text-sm text-muted-foreground">
+          {hasGoal ? `/ ${habit.goalAmount} ` : ""}
+          {habit.unit}
         </span>
       </div>
+    </RowShell>
+  );
+}
+
+// scale kind: five 1-5 segments; tapping the selected value clears back to NA
+function ScaleRow({
+  habit,
+  log,
+  onSelect,
+}: {
+  habit: ResolvedHabit;
+  log: HabitLog | undefined;
+  onSelect: (value: number | null) => void;
+}) {
+  const { logged, value } = interpretLog("scale", log);
+  const selected = logged && typeof value === "number" ? value : null;
+
+  return (
+    <RowShell>
+      <RowLabel habit={habit} />
+      <div className="flex items-center gap-1" role="radiogroup" aria-label={habit.name}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={selected === n}
+            onClick={() => onSelect(selected === n ? null : n)}
+            className={`h-11 w-11 rounded-md border text-sm font-medium transition-colors ${
+              selected === n
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:bg-accent"
+            }`}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+    </RowShell>
+  );
+}
+
+// choice kind: option chips; tapping the selected option clears back to NA
+function ChoiceRow({
+  habit,
+  log,
+  onSelect,
+}: {
+  habit: ResolvedHabit;
+  log: HabitLog | undefined;
+  onSelect: (option: string | null) => void;
+}) {
+  const { logged, value } = interpretLog("choice", log);
+  const selected = logged && typeof value === "string" ? value : null;
+  const options = habit.choiceOptions ?? [];
+
+  return (
+    <RowShell>
+      <RowLabel habit={habit} />
+      <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={habit.name}>
+        {options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={selected === option}
+            onClick={() => onSelect(selected === option ? null : option)}
+            className={`h-11 rounded-full border px-4 text-sm font-medium capitalize transition-colors ${
+              selected === option
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:bg-accent"
+            }`}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    </RowShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Day note (daily_notes table; hidden until the v2 migration is applied)
+// ---------------------------------------------------------------------------
+
+function DayNote({ date }: { date: string }) {
+  const { note, setNote, saveNote, available } = useDailyNote(date);
+
+  if (!available) return null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <NotebookPen className="h-4 w-4" />
+        Day note
+      </div>
+      <Textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        onBlur={() => saveNote(note)}
+        placeholder="Anything worth remembering about today - free form, no structure needed."
+        className="min-h-24 text-base"
+      />
     </div>
   );
 }
 
-// Wrapper that renders the right component based on tracking mode
-function HabitRow({
-  habit,
-  amount,
-  onUpdate,
-  onToggle,
-}: {
-  habit: UserHabit;
-  amount: number;
-  onUpdate: (value: number) => void;
-  onToggle: (checked: boolean) => void;
-}) {
-  if (habit.trackingMode === "checkbox") {
-    return (
-      <CheckboxHabitRow
-        habit={habit}
-        amount={amount}
-        onToggle={onToggle}
-      />
-    );
-  }
-
-  if (habit.trackingMode === "goal") {
-    return (
-      <GoalHabitRow
-        habit={habit}
-        amount={amount}
-        onToggle={onToggle}
-      />
-    );
-  }
-
-  return (
-    <ManualHabitRow
-      key={`${habit.definition.key}:${amount}`}
-      habit={habit}
-      amount={amount}
-      onUpdate={onUpdate}
-    />
-  );
-}
+// ---------------------------------------------------------------------------
+// Tab
+// ---------------------------------------------------------------------------
 
 export function HabitsTab() {
   const { selectedDate } = useDate();
   const dateString = format(selectedDate, "yyyy-MM-dd");
 
-  const { getEnabledHabits, isLoading: isPrefsLoading } = useHabitPreferencesContext();
+  const {
+    getEnabledHabits,
+    v2Available,
+    isLoading: isPrefsLoading,
+  } = useHabitPreferencesContext();
   const enabledHabits = getEnabledHabits();
-  // useHabitLogs compares the joined key string, so this derived array does
-  // not need manual memoization.
-  const enabledHabitKeys = enabledHabits.map((habit) => habit.definition.key);
 
   const {
     getLogForHabit,
-    updateHabitAmount: updateHabitLog,
-    toggleHabit,
+    toggleCheckbox,
+    quickCompleteNumber,
+    setNumberAmount,
+    setScaleValue,
+    setChoiceValue,
     isLoading: isLogsLoading,
-  } = useHabitLogs(dateString, enabledHabitKeys);
+  } = useHabitLogs(dateString, enabledHabits, v2Available);
 
   const isLoading = isPrefsLoading || isLogsLoading;
 
@@ -205,7 +265,6 @@ export function HabitsTab() {
         {format(selectedDate, "EEEE, MMMM d, yyyy")}
       </div>
 
-      {/* Habits List */}
       <div className="space-y-2">
         {isLoading ? (
           <div className="rounded-lg border bg-card px-4 py-8 text-center">
@@ -213,34 +272,62 @@ export function HabitsTab() {
           </div>
         ) : enabledHabits.length === 0 ? (
           <div className="rounded-lg border-2 border-dashed p-8 text-center">
-            <p className="text-sm text-muted-foreground mb-2">
-              No habits tracked yet
-            </p>
+            <p className="text-sm text-muted-foreground mb-2">No habits tracked yet</p>
             <p className="text-xs text-muted-foreground">
               Add habits to track in Settings
             </p>
           </div>
         ) : (
           enabledHabits.map((habit) => {
-            const log = getLogForHabit(habit.definition.key);
-            const amount = log?.amount ?? 0;
-
-            return (
-              <HabitRow
-                key={habit.definition.key}
-                habit={habit}
-                amount={amount}
-                onUpdate={(value) => updateHabitLog(habit.definition.key, value)}
-                onToggle={(checked) => {
-                  if (checked === Boolean(log?.completed)) return;
-                  const goalAmount = habit.trackingMode === "checkbox" ? 1 : habit.goalAmount;
-                  toggleHabit(habit.definition.key, goalAmount);
-                }}
-              />
-            );
+            const log = getLogForHabit(habit.key);
+            switch (habit.valueKind) {
+              case "checkbox":
+                return (
+                  <CheckboxRow
+                    key={habit.key}
+                    habit={habit}
+                    log={log}
+                    onToggle={() => toggleCheckbox(habit.key)}
+                  />
+                );
+              case "number": {
+                const numberValue = interpretLog("number", log).value;
+                return (
+                  <NumberRow
+                    key={`${habit.key}:${typeof numberValue === "number" ? numberValue : 0}`}
+                    habit={habit}
+                    log={log}
+                    onQuickComplete={() =>
+                      quickCompleteNumber(habit.key, habit.goalAmount ?? 0)
+                    }
+                    onSetAmount={(value) => setNumberAmount(habit.key, value)}
+                  />
+                );
+              }
+              case "scale":
+                return (
+                  <ScaleRow
+                    key={habit.key}
+                    habit={habit}
+                    log={log}
+                    onSelect={(value) => setScaleValue(habit.key, value)}
+                  />
+                );
+              case "choice":
+                return (
+                  <ChoiceRow
+                    key={habit.key}
+                    habit={habit}
+                    log={log}
+                    onSelect={(option) => setChoiceValue(habit.key, option)}
+                  />
+                );
+            }
           })
         )}
       </div>
+
+      <DayNote date={dateString} />
     </div>
   );
 }

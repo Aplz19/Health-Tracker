@@ -48,6 +48,57 @@ docs/              operational setup notes
    `source` is provenance (`manual`, `openfoodfacts`,
    `restaurant_official`, etc.), not a display label.
 
+## Habits v2
+
+User-defined habit tracking with typed values. Source of truth is the
+`user_habits` table (`sql/add_habits_v2.sql`); the hardcoded
+`HABIT_DEFINITIONS` list survives only as the pre-migration fallback and the
+icon map for seeded built-ins.
+
+**Value kinds** (`user_habits.value_kind`, snapshotted onto every
+`habit_logs.value_kind` at write time):
+
+- `checkbox` — did/didn't (`completed`)
+- `number` — an amount (`amount`); a non-null `goal_amount` renders the
+  one-tap quick-complete checkbox that logs the goal (the old "goal mode")
+- `scale` — subjective 1–5 (`amount`)
+- `choice` — one of `choice_options` (`value_text`), e.g. day type
+  green/red/life
+
+**Sparse truth (do not break this):** an absent log row means NOT REPORTED,
+never zero/false. Scale/choice rows are never auto-created and clearing a
+value DELETES the row. Checkbox/number keep the legacy placeholder-row
+behavior (a `completed=false, amount=null` row appears when a day is first
+viewed; `amount=null` still interprets as "not entered"). All interpretation
+goes through `interpretLog()` in `src/lib/habits/logic.ts` — never read
+`completed`/`amount` directly. Analytics must exclude `logged=false` entries,
+not treat them as 0.
+
+**Kind changes never rewrite history:** each log row keeps the `value_kind` it
+was recorded under; changing a habit's kind affects future logs only. Habits
+are archived (`archived_at`), never deleted. Legacy rows with `value_kind
+NULL` interpret via the habit's current kind.
+
+**Graceful fallback:** while `sql/add_habits_v2.sql` is unapplied,
+`use-habits.ts` detects the missing table (`isMissingSchemaError`) and serves
+the legacy built-ins + `user_habit_preferences` path; custom habits,
+scale/choice, and the day note hide themselves. Writes omit the v2 columns in
+this mode so they succeed against the old schema. Same pattern as
+`use-nutrition-goals.ts`.
+
+**Daily notes:** `daily_notes` (one row per user per day) is the free-text
+journal; it and a per-habit entry list (`habits`, `day_note`) are aggregated
+into `daily_summaries` by `src/lib/daily-summary/aggregate.ts`, so the
+analytics pipeline sees habit data. Habit metadata shared with server code
+lives icon-free in `src/lib/habits/meta.ts` (keep it in sync with the seed
+VALUES in the migration).
+
+Key files: `src/lib/habits/{meta,config,logic}.ts` (+ `logic.test.ts`),
+`src/hooks/{use-habits,use-habit-logs,use-daily-note}.ts`,
+`src/components/tabs/habits-tab.tsx`,
+`src/components/settings/{habits-settings,habit-editor-dialog}.tsx`,
+`src/components/habits/habit-icon.tsx`.
+
 ## Food discovery model
 
 Both the standalone Food Library and the meal picker follow the intended

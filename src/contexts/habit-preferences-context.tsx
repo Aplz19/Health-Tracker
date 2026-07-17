@@ -1,29 +1,36 @@
 "use client";
 
 import { createContext, useContext, ReactNode } from "react";
-import { useHabitPreferences } from "@/hooks/use-habit-preferences";
-import type { HabitPreference, UserHabit } from "@/types/habits";
+import { useHabits } from "@/hooks/use-habits";
+import type { HabitPatch, NewHabitInput, ResolvedHabit } from "@/types/habits";
 
-interface HabitPreferencesContextType {
-  preferences: HabitPreference[];
+// Habits v2 context. Keeps the pre-v2 provider/hook names so the mount point
+// (app/page.tsx) is unchanged, but exposes the unified ResolvedHabit
+// interface backed by user_habits (or the legacy fallback - see use-habits).
+
+interface HabitsContextType {
   isLoading: boolean;
   error: string | null;
-  getAllHabits: () => UserHabit[];
-  getEnabledHabits: () => UserHabit[];
+  // True once the add_habits_v2.sql migration is applied: unlocks custom
+  // habits, scale/choice kinds, emoji/name/unit edits, and archiving.
+  v2Available: boolean;
+  getAllHabits: () => ResolvedHabit[];
+  getEnabledHabits: () => ResolvedHabit[];
+  addHabit: (input: NewHabitInput) => Promise<string | null>;
+  updateHabit: (key: string, patch: HabitPatch) => Promise<void>;
   toggleHabit: (key: string, enabled: boolean) => Promise<void>;
-  setTrackingMode: (key: string, mode: "checkbox" | "goal" | "manual") => Promise<void>;
-  setGoalAmount: (key: string, amount: number) => Promise<void>;
+  archiveHabit: (key: string) => Promise<void>;
   reorderHabits: (orderedKeys: string[]) => Promise<void>;
   refetch: () => Promise<void>;
 }
 
-const HabitPreferencesContext = createContext<HabitPreferencesContextType | null>(null);
+const HabitPreferencesContext = createContext<HabitsContextType | null>(null);
 
 export function HabitPreferencesProvider({ children }: { children: ReactNode }) {
-  const habitPreferences = useHabitPreferences();
+  const habits = useHabits();
 
   return (
-    <HabitPreferencesContext.Provider value={habitPreferences}>
+    <HabitPreferencesContext.Provider value={habits}>
       {children}
     </HabitPreferencesContext.Provider>
   );
