@@ -12,9 +12,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useHabitPreferencesContext } from "@/contexts/habit-preferences-context";
-import { validateChoiceOptions } from "@/lib/habits/logic";
+import {
+  cycleChoiceColor,
+  nextChoiceColor,
+  validateChoiceOptions,
+} from "@/lib/habits/logic";
+import { CHOICE_COLOR_CLASSES } from "@/lib/habits/choice-colors";
 import { HabitIcon } from "@/components/habits/habit-icon";
-import type { HabitValueKind, ResolvedHabit } from "@/types/habits";
+import type { ChoiceOption, HabitValueKind, ResolvedHabit } from "@/types/habits";
 
 // Full-screen habit editor (fullscreenOnMobile sheet on phones, centered card
 // on desktop). Used for both editing an existing habit and creating a new
@@ -39,7 +44,7 @@ interface EditorState {
   valueKind: HabitValueKind;
   goal: string;
   step: string;
-  options: string[];
+  options: ChoiceOption[];
 }
 
 function stateFromHabit(habit: ResolvedHabit | null): EditorState {
@@ -87,8 +92,21 @@ export function HabitEditorDialog({
   const addOption = () => {
     const value = optionDraft.trim();
     if (!value) return;
-    set({ options: [...state.options, value] });
+    set({
+      options: [
+        ...state.options,
+        { label: value, color: nextChoiceColor(state.options) },
+      ],
+    });
     setOptionDraft("");
+  };
+
+  const cycleOptionColor = (index: number) => {
+    set({
+      options: state.options.map((option, i) =>
+        i === index ? { ...option, color: cycleChoiceColor(option.color) } : option
+      ),
+    });
   };
 
   const handleSave = async () => {
@@ -98,7 +116,7 @@ export function HabitEditorDialog({
       return;
     }
 
-    let choiceOptions: string[] | null = null;
+    let choiceOptions: ChoiceOption[] | null = null;
     if (state.valueKind === "choice") {
       const result = validateChoiceOptions(state.options);
       if (result.error) {
@@ -277,13 +295,20 @@ export function HabitEditorDialog({
               <div className="flex flex-wrap gap-1.5">
                 {state.options.map((option, index) => (
                   <span
-                    key={`${option}-${index}`}
-                    className="flex h-9 items-center gap-1 rounded-full border bg-accent px-3 text-sm capitalize"
+                    key={`${option.label}-${index}`}
+                    className={`flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm capitalize ${CHOICE_COLOR_CLASSES[option.color].chip}`}
                   >
-                    {option}
                     <button
                       type="button"
-                      aria-label={`Remove ${option}`}
+                      aria-label={`Change color of ${option.label} (currently ${option.color})`}
+                      title="Tap to change color"
+                      onClick={() => cycleOptionColor(index)}
+                      className={`h-4 w-4 rounded-full ring-1 ring-white/30 ${CHOICE_COLOR_CLASSES[option.color].dot}`}
+                    />
+                    {option.label}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${option.label}`}
                       onClick={() =>
                         set({ options: state.options.filter((_, i) => i !== index) })
                       }
@@ -294,6 +319,11 @@ export function HabitEditorDialog({
                   </span>
                 ))}
               </div>
+              {state.options.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Tap an option&apos;s dot to change its color.
+                </p>
+              )}
               <div className="flex gap-2">
                 <Input
                   id="habit-option"

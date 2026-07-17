@@ -8,6 +8,23 @@ import type { LucideIcon } from "lucide-react";
 // habit's kind never rewrites history (see sql/add_habits_v2.sql).
 export type HabitValueKind = "checkbox" | "number" | "scale" | "choice";
 
+// Cosmetic color for a choice option (fixed palette; maps to static Tailwind
+// classes in the UI). Purely presentational - logs store only the label.
+export type ChoiceColor =
+  | "green"
+  | "red"
+  | "amber"
+  | "blue"
+  | "purple"
+  | "cyan"
+  | "pink"
+  | "gray";
+
+export interface ChoiceOption {
+  label: string;
+  color: ChoiceColor;
+}
+
 // Row in the user_habits table (v2 source of truth for definitions).
 export interface UserHabitRow {
   id: string;
@@ -19,7 +36,7 @@ export interface UserHabitRow {
   value_kind: HabitValueKind;
   goal_amount: number | null;
   step: number | null;
-  choice_options: string[] | null;
+  choice_options: ChoiceOption[] | null;
   is_enabled: boolean;
   sort_order: number;
   archived_at: string | null;
@@ -36,7 +53,7 @@ export interface ResolvedHabit {
   valueKind: HabitValueKind;
   goalAmount: number | null;
   step: number;
-  choiceOptions: string[] | null;
+  choiceOptions: ChoiceOption[] | null;
   // Custom habits carry an emoji; built-ins carry their legacy key so the UI
   // can map it to the original lucide icon + color.
   emoji: string | null;
@@ -55,7 +72,7 @@ export interface HabitPatch {
   valueKind?: HabitValueKind;
   goalAmount?: number | null;
   step?: number | null;
-  choiceOptions?: string[] | null;
+  choiceOptions?: ChoiceOption[] | null;
   isEnabled?: boolean;
 }
 
@@ -66,7 +83,7 @@ export interface NewHabitInput {
   valueKind: HabitValueKind;
   goalAmount: number | null;
   step: number | null;
-  choiceOptions: string[] | null;
+  choiceOptions: ChoiceOption[] | null;
 }
 
 // ---------------------------------------------------------------------------

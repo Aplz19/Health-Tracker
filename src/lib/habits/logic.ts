@@ -3,6 +3,8 @@
 // unit tests (logic.test.ts).
 
 import type {
+  ChoiceColor,
+  ChoiceOption,
   HabitLog,
   HabitPreference,
   HabitValueKind,
@@ -11,6 +13,70 @@ import type {
   UserHabitRow,
 } from "@/types/habits";
 import { BUILTIN_HABIT_META } from "./meta";
+
+// ---------------------------------------------------------------------------
+// Choice option colors (cosmetic). Fixed palette; assignment order gives new
+// options distinct colors without the user having to pick.
+// ---------------------------------------------------------------------------
+
+export const CHOICE_COLORS: ChoiceColor[] = [
+  "green",
+  "red",
+  "amber",
+  "blue",
+  "purple",
+  "cyan",
+  "pink",
+  "gray",
+];
+
+function isChoiceColor(value: unknown): value is ChoiceColor {
+  return typeof value === "string" && (CHOICE_COLORS as string[]).includes(value);
+}
+
+// choice_options is JSONB and has carried two shapes: plain strings (first
+// v2 release) and {label, color} objects. Normalize anything the DB hands us;
+// legacy strings get palette colors assigned by position.
+export function normalizeChoiceOptions(raw: unknown): ChoiceOption[] | null {
+  if (!Array.isArray(raw)) return null;
+  const options: ChoiceOption[] = [];
+  for (const entry of raw) {
+    if (typeof entry === "string") {
+      options.push({
+        label: entry,
+        color: CHOICE_COLORS[options.length % CHOICE_COLORS.length],
+      });
+    } else if (
+      entry !== null &&
+      typeof entry === "object" &&
+      typeof (entry as { label?: unknown }).label === "string"
+    ) {
+      const color = (entry as { color?: unknown }).color;
+      options.push({
+        label: (entry as { label: string }).label,
+        color: isChoiceColor(color)
+          ? color
+          : CHOICE_COLORS[options.length % CHOICE_COLORS.length],
+      });
+    }
+    // Anything else (numbers, malformed objects) is dropped.
+  }
+  return options.length > 0 ? options : null;
+}
+
+// First palette color not already used by the given options (wraps around).
+export function nextChoiceColor(existing: ChoiceOption[]): ChoiceColor {
+  const used = new Set(existing.map((o) => o.color));
+  return (
+    CHOICE_COLORS.find((c) => !used.has(c)) ??
+    CHOICE_COLORS[existing.length % CHOICE_COLORS.length]
+  );
+}
+
+export function cycleChoiceColor(current: ChoiceColor): ChoiceColor {
+  const index = CHOICE_COLORS.indexOf(current);
+  return CHOICE_COLORS[(index + 1) % CHOICE_COLORS.length];
+}
 
 // ---------------------------------------------------------------------------
 // Schema-capability detection (graceful fallback while the migration is
@@ -45,7 +111,9 @@ export function resolveFromV2(rows: UserHabitRow[]): ResolvedHabit[] {
       valueKind: row.value_kind,
       goalAmount: row.goal_amount,
       step: row.step ?? 1,
-      choiceOptions: row.choice_options,
+      // Defense in depth: rows may arrive raw from the DB (legacy string
+      // arrays or malformed entries) - always normalize.
+      choiceOptions: normalizeChoiceOptions(row.choice_options),
       emoji: row.emoji,
       builtinKey: BUILTIN_KEYS.has(row.habit_key) ? row.habit_key : null,
       isEnabled: row.is_enabled,
@@ -134,16 +202,18 @@ export function autoCreatesPlaceholder(kind: HabitValueKind): boolean {
 // Validation + key generation
 // ---------------------------------------------------------------------------
 
-export function validateChoiceOptions(raw: string[]): {
-  options: string[] | null;
+export function validateChoiceOptions(raw: ChoiceOption[]): {
+  options: ChoiceOption[] | null;
   error: string | null;
 } {
-  const cleaned = raw.map((o) => o.trim()).filter((o) => o.length > 0);
+  const cleaned = raw
+    .map((o) => ({ ...o, label: o.label.trim() }))
+    .filter((o) => o.label.length > 0);
   const seen = new Set<string>();
   for (const option of cleaned) {
-    const lower = option.toLowerCase();
+    const lower = option.label.toLowerCase();
     if (seen.has(lower)) {
-      return { options: null, error: `Duplicate option: "${option}"` };
+      return { options: null, error: `Duplicate option: "${option.label}"` };
     }
     seen.add(lower);
   }

@@ -11,6 +11,7 @@ import { useHabitPreferencesContext } from "@/contexts/habit-preferences-context
 import { useHabitLogs } from "@/hooks/use-habit-logs";
 import { useDailyNote } from "@/hooks/use-daily-note";
 import { interpretLog } from "@/lib/habits/logic";
+import { CHOICE_COLOR_CLASSES } from "@/lib/habits/choice-colors";
 import { HabitIcon } from "@/components/habits/habit-icon";
 import type { HabitLog, ResolvedHabit } from "@/types/habits";
 
@@ -167,7 +168,8 @@ function ScaleRow({
   );
 }
 
-// choice kind: option chips; tapping the selected option clears back to NA
+// choice kind: option chips; tapping the selected option clears back to NA.
+// Each option lights up in its own configured color when selected.
 function ChoiceRow({
   habit,
   log,
@@ -187,18 +189,18 @@ function ChoiceRow({
       <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={habit.name}>
         {options.map((option) => (
           <button
-            key={option}
+            key={option.label}
             type="button"
             role="radio"
-            aria-checked={selected === option}
-            onClick={() => onSelect(selected === option ? null : option)}
+            aria-checked={selected === option.label}
+            onClick={() => onSelect(selected === option.label ? null : option.label)}
             className={`h-11 rounded-full border px-4 text-sm font-medium capitalize transition-colors ${
-              selected === option
-                ? "border-primary bg-primary text-primary-foreground"
+              selected === option.label
+                ? CHOICE_COLOR_CLASSES[option.color].chip
                 : "bg-background text-muted-foreground hover:bg-accent"
             }`}
           >
-            {option}
+            {option.label}
           </button>
         ))}
       </div>

@@ -6,6 +6,7 @@ import {
   enabledSorted,
   generateHabitKey,
   isMissingSchemaError,
+  normalizeChoiceOptions,
   resolveFromLegacy,
   resolveFromV2,
 } from "@/lib/habits/logic";
@@ -28,9 +29,7 @@ import type {
 function parseRow(row: UserHabitRow & { choice_options: unknown }): UserHabitRow {
   return {
     ...row,
-    choice_options: Array.isArray(row.choice_options)
-      ? (row.choice_options as string[])
-      : null,
+    choice_options: normalizeChoiceOptions(row.choice_options),
   };
 }
 

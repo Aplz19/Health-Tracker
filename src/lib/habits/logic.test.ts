@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 import {
   autoCreatesPlaceholder,
   clampScale,
+  CHOICE_COLORS,
+  cycleChoiceColor,
   enabledSorted,
   generateHabitKey,
   interpretLog,
   isMissingSchemaError,
+  nextChoiceColor,
+  normalizeChoiceOptions,
   resolveFromLegacy,
   resolveFromV2,
   validateChoiceOptions,
@@ -95,7 +99,11 @@ test("resolveFromV2 maps rows, marks built-ins, and drops archived habits", () =
       name: "Day Type",
       emoji: "🚦",
       value_kind: "choice",
-      choice_options: ["green", "red", "life"],
+      choice_options: [
+        { label: "green", color: "green" },
+        { label: "red", color: "red" },
+        { label: "life", color: "blue" },
+      ],
       sort_order: 0,
     }),
     makeV2Row({ habit_key: "custom_old_x", archived_at: "2026-07-01T00:00:00Z" }),
@@ -108,7 +116,11 @@ test("resolveFromV2 maps rows, marks built-ins, and drops archived habits", () =
   assert.equal(meditation?.builtinKey, "meditation"); // keeps lucide icon
   assert.equal(meditation?.source, "v2");
   assert.equal(dayType?.builtinKey, null); // custom -> emoji
-  assert.deepEqual(dayType?.choiceOptions, ["green", "red", "life"]);
+  assert.deepEqual(dayType?.choiceOptions, [
+    { label: "green", color: "green" },
+    { label: "red", color: "red" },
+    { label: "life", color: "blue" },
+  ]);
 });
 
 test("resolveFromLegacy maps tracking modes and keeps user goals", () => {
@@ -233,13 +245,53 @@ test("placeholders auto-create only for checkbox/number", () => {
 });
 
 test("validateChoiceOptions cleans, dedupes, and enforces a minimum", () => {
-  assert.deepEqual(validateChoiceOptions([" green ", "red", "life"]), {
-    options: ["green", "red", "life"],
+  const opt = (label: string) => ({ label, color: "green" as const });
+  assert.deepEqual(validateChoiceOptions([opt(" green "), opt("red")]), {
+    options: [opt("green"), opt("red")],
     error: null,
   });
-  assert.notEqual(validateChoiceOptions(["green", "GREEN"]).error, null);
-  assert.notEqual(validateChoiceOptions(["only-one"]).error, null);
-  assert.notEqual(validateChoiceOptions(["", "  "]).error, null);
+  assert.notEqual(validateChoiceOptions([opt("green"), opt("GREEN")]).error, null);
+  assert.notEqual(validateChoiceOptions([opt("only-one")]).error, null);
+  assert.notEqual(validateChoiceOptions([opt(""), opt("  ")]).error, null);
+});
+
+test("normalizeChoiceOptions handles legacy strings, objects, and junk", () => {
+  // First-release rows stored plain strings: colors get assigned by position
+  assert.deepEqual(normalizeChoiceOptions(["yes", "no"]), [
+    { label: "yes", color: CHOICE_COLORS[0] },
+    { label: "no", color: CHOICE_COLORS[1] },
+  ]);
+  // Proper objects pass through; bad colors get replaced, junk is dropped
+  assert.deepEqual(
+    normalizeChoiceOptions([
+      { label: "green", color: "green" },
+      { label: "life", color: "not-a-color" },
+      42,
+      { nope: true },
+    ]),
+    [
+      { label: "green", color: "green" },
+      { label: "life", color: CHOICE_COLORS[1] },
+    ]
+  );
+  assert.equal(normalizeChoiceOptions("nonsense"), null);
+  assert.equal(normalizeChoiceOptions([]), null);
+  assert.equal(normalizeChoiceOptions(null), null);
+});
+
+test("nextChoiceColor avoids used colors and wraps; cycle walks the palette", () => {
+  assert.equal(
+    nextChoiceColor([
+      { label: "a", color: "green" },
+      { label: "b", color: "red" },
+    ]),
+    "amber"
+  );
+  // All colors used -> wraps by position instead of failing
+  const all = CHOICE_COLORS.map((color, i) => ({ label: `o${i}`, color }));
+  assert.equal(CHOICE_COLORS.includes(nextChoiceColor(all)), true);
+  assert.equal(cycleChoiceColor("green"), "red");
+  assert.equal(cycleChoiceColor(CHOICE_COLORS[CHOICE_COLORS.length - 1]), "green");
 });
 
 test("clampScale keeps values in 1-5", () => {
