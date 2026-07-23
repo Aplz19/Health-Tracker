@@ -296,6 +296,31 @@ count mismatches, duplicate active identities, provenance orphans, or transition
 orphans. The payload allowlist is removed for the closing deployment so the
 bridge is unavailable until a future reviewed import window.
 
+The 2026-07-22 Hawaiian Bros rollout extended the same evidence-bound path to
+the current official February 2026 nutrition sheet. The locked
+`rollout_backup_20260722_hawaiian_bros_63` snapshot preserved 11,047 foods,
+10,928 restaurant versions (10,921 active and seven inactive), 587 food logs,
+120 personal-library links, 28 saved-meal item links, 39 batches, 11,191
+provenance rows, and 11,198 transitions. Of 71 printed source rows, 63 had a
+complete, internally consistent nutrient record; three partial rows and five
+source-printed carbohydrate/sugar contradictions remain explicitly excluded
+rather than repaired or estimated. The approved bridge payload was 200,121
+bytes with
+`rpc_payload_sha256=134e637e07b315abf5026e7e589b389799568fd291b2e6a63f6f73b533304aa2`.
+
+The atomic production import inserted one batch, 63 immutable food versions,
+63 provenance rows, and 63 transitions with no deactivations. Production now
+contains 11,110 foods, 10,991 restaurant versions, and 10,984 active restaurant
+foods across 38 brands; it retains 40 batches, 11,254 provenance rows, and
+11,261 transitions. Food logs, personal-library links, saved-meal item links,
+and the library-transition journal changed by zero. An immediate exact replay
+returned `IDEMPOTENT_REPLAY` with zero writes. Search verification returned all
+63 Hawaiian Bros rows in two stable, non-overlapping pages for the exact and
+whitespace/case-normalized brand query; `haw` placed Hawaiian Bros in all top
+ten results, and `haw honolulu chick` ranked `Honolulu Chicken - Classic`
+first. The one-payload allowlist was removed and the closing production
+deployment restored HTTP 503 at the import route.
+
 Embedding generation is deliberately deferred for this rollout. Production
 search remains available through the indexed lexical side of the hybrid RPC.
 Do not treat embeddings as complete until the bounded backfill below is
