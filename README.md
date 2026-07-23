@@ -321,6 +321,46 @@ ten results, and `haw honolulu chick` ranked `Honolulu Chicken - Classic`
 first. The one-payload allowlist was removed and the closing production
 deployment restored HTTP 503 at the import route.
 
+The 2026-07-22 six-chain second-wave rollout added Papa Johns, Freddy's
+Frozen Custard & Steakburgers, Hardee's, Buffalo Wild Wings, Firehouse Subs,
+and Noodles & Company through the same evidence-bound bridge. The locked
+`rollout_backup_20260722_second_wave_6` snapshot preserved 11,110 foods,
+10,991 restaurant versions (10,984 active and seven inactive), 588 food logs,
+120 personal-library links, 28 saved-meal item links, 40 import batches,
+11,254 provenance rows, 11,261 transitions, and the empty library-transition
+journal. Schema access is revoked from `anon`, `authenticated`, and
+`service_role`.
+
+The six separately validated payloads stayed below the four-MiB bridge cap:
+480 Papa Johns rows (`1,552,692` bytes,
+`12c80b52c79234ed5527a9addae4689e301ca3643fe1fcbdf69a41f31d4ca038`),
+301 Freddy's rows (`910,906` bytes,
+`c3b06b765259a3cddae2a67776b5346902f0bb01b8d111b384d2dad51a0d451b`),
+126 Hardee's rows (`375,011` bytes,
+`31e44e8073e311486787fc66bf51c86e7851ac3725f1901b7217f953435e1a99`),
+747 Buffalo Wild Wings rows (`2,151,336` bytes,
+`ebd70849e170c51118f72d7008fe8b73bfc3cce235a1af8d997890132618a07c`),
+1,092 Firehouse Subs rows (`2,975,218` bytes,
+`6e64e574063bdf468889c80f55eefafbaf00114ae227b27580a7e8bcfb5b07f9`),
+and 64 Noodles & Company rows (`198,659` bytes,
+`98dfc32240d409ae662bbb99fb86a0da0a1d851583e1395381bdc8cc4cf0aad9`).
+
+The atomic imports added exactly six batches, 2,810 immutable food versions,
+2,810 provenance rows, and 2,810 activation transitions with no deactivations.
+Production now contains 13,920 foods, 13,801 restaurant versions, and 13,794
+active restaurant foods across 44 brands; it retains 46 batches, 14,064
+provenance rows, and 14,071 transitions. Food logs, personal-library links,
+saved-meal item links, and the library-transition journal changed by zero.
+Exact replays of all six payloads returned `IDEMPOTENT_REPLAY` with zero
+writes. Database checks found zero duplicate active identities, incomplete
+core macros, missing search fields, provenance orphans, or transition orphans.
+Partial brand searches (`papa`, `fredd`, `hardee`, `buffalo wild`,
+`firehouse`, and `noodles`) placed the correct brand first, brand-plus-item
+queries placed the intended food first, and Firehouse pagination returned two
+50-row pages with a stable total of 1,092 and zero overlap. The temporary
+six-hash allowlist was removed for the closing deployment, restoring HTTP 503
+at the import route.
+
 Embedding generation is deliberately deferred for this rollout. Production
 search remains available through the indexed lexical side of the hybrid RPC.
 Do not treat embeddings as complete until the bounded backfill below is
