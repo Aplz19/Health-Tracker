@@ -361,6 +361,36 @@ queries placed the intended food first, and Firehouse pagination returned two
 six-hash allowlist was removed for the closing deployment, restoring HTTP 503
 at the import route.
 
+The 2026-07-24 Andy's Frozen Custard rollout added the complete quantitative
+scope of the chain's current official nutrition guide: Vanilla Frozen Custard
+and Chocolate Frozen Custard, each as the published 4 oz serving. The official
+guide explicitly limits its nutrition data to custard and does not publish
+topping macros, so no larger sizes, toppings, or concrete combinations were
+estimated. The captured JSON evidence has
+`sha256=e98601b8c099faaf3d704a820f226d6525962332c3838a457f44c8bb2ecca9e7`;
+the official nutrition image has
+`sha256=d8f3d213f28dea6ebda99c1b4840e517a876664e95214d92d31e29d35a38751f`.
+Deterministic validation, a bounded local Qwen review, and an independent
+GPT-5.6 Luna semantic audit all passed both rows with no exclusions or
+warnings. The 7,504-byte transfer bundle passed offline validation and dry run
+with
+`rpc_payload_sha256=2e0d820f9e30188388483d48963a9827dfcde2d650a5f355797247794f6249f8`.
+
+The locked `rollout_backup_20260724_andys_2` snapshot preserved 13,922 foods,
+13,801 restaurant versions (13,794 active), 619 food logs, 122
+personal-library links, 28 saved-meal item links, 46 import batches, 14,064
+provenance rows, 14,071 transitions, and the empty library-transition journal.
+The atomic import added one batch, two immutable food versions, two provenance
+rows, and two activation transitions with no deactivations. Production now
+contains 13,924 foods, 13,803 restaurant versions, and 13,796 active restaurant
+foods across 45 brands; food logs and all personal-reference tables changed by
+zero. An immediate exact replay returned `IDEMPOTENT_REPLAY` with zero writes.
+Database checks found zero duplicate active identities, incomplete core macros,
+missing search fields, provenance orphans, or transition orphans. Searches for
+`andy`, `andys`, `Andy's`, whitespace/case variants, `andy vanilla`, and
+`andy chocolate` returned the expected rows with Andy's ranked first. The
+one-payload allowlist was removed before the closing deployment.
+
 Embedding generation is deliberately deferred for this rollout. Production
 search remains available through the indexed lexical side of the hybrid RPC.
 Do not treat embeddings as complete until the bounded backfill below is
