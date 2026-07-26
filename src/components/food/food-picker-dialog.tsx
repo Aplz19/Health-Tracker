@@ -23,6 +23,7 @@ import dynamic from "next/dynamic";
 import { CreatePresetDialog } from "@/components/meals/create-preset-dialog";
 import type { Food } from "@/lib/supabase/types";
 import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
+import { offFoodToInsert } from "@/lib/openfoodfacts/to-food-insert";
 
 // Barcode scanner pulls in quagga2 (large); load it only when first opened.
 const BarcodeScanner = dynamic(
@@ -531,8 +532,14 @@ export function FoodPickerDialog({
   };
 
   // Handle scanned food from barcode
-  const handleScannedFood = (food: TransformedOFFFood) => {
-    setSelectedFood(food);
+  // Persist the scan immediately, exactly like the Food Library screen does.
+  // This used to only stash the OFF payload in local state, so the scanner's
+  // "Add to Library" button was a lie here: nothing reached the library, and
+  // if anything failed later the food was lost. Saving now also means
+  // handleConfirm receives a real Food row and skips a second save.
+  const handleScannedFood = async (food: TransformedOFFFood) => {
+    const saved = await addToLibrary(offFoodToInsert(food));
+    setSelectedFood(saved);
     setUnit("serving");
     setAmount(1);
     setSelectedUnitIndex(0);
@@ -590,44 +597,9 @@ export function FoodPickerDialog({
     // If it's a scanned food, save to cache and add to user's library
     try {
       if (isScannedFood(selectedFood)) {
-        // Save to global cache AND user's library
-        foodToAdd = await addToLibrary({
-          name: selectedFood.name,
-          brand: selectedFood.brand,
-          brand_slug: null,
-          search_aliases: selectedFood.brand ? [selectedFood.brand.toLowerCase()] : [],
-          serving_size: selectedFood.serving_size,
-          serving_size_grams: selectedFood.serving_size_grams,
-          calories: selectedFood.calories,
-          protein: selectedFood.protein,
-          total_fat: selectedFood.total_fat,
-          saturated_fat: selectedFood.saturated_fat,
-          trans_fat: selectedFood.trans_fat,
-          polyunsaturated_fat: selectedFood.polyunsaturated_fat,
-          monounsaturated_fat: selectedFood.monounsaturated_fat,
-          sodium: selectedFood.sodium,
-          total_carbohydrates: selectedFood.total_carbohydrates,
-          fiber: selectedFood.fiber,
-          sugar: selectedFood.sugar,
-          added_sugar: selectedFood.added_sugar,
-          vitamin_a: selectedFood.vitamin_a,
-          vitamin_c: selectedFood.vitamin_c,
-          vitamin_d: selectedFood.vitamin_d,
-          calcium: selectedFood.calcium,
-          iron: selectedFood.iron,
-          cholesterol: null,
-          fdc_id: null,
-          barcode: selectedFood.barcode,
-          source: selectedFood.source,
-          source_external_id: null,
-          source_identity_key: null,
-          content_hash: null,
-          is_active: true,
-          verified_at: null,
-          supersedes_food_id: null,
-          source_category: null,
-          variant_label: null,
-        });
+        // Fallback: a scan that reached this step without being persisted yet
+        // (handleScannedFood normally saves it up front).
+        foodToAdd = await addToLibrary(offFoodToInsert(selectedFood));
       } else {
         foodToAdd = selectedFood;
       }

@@ -15,7 +15,11 @@ import type { TransformedOFFFood } from "@/lib/openfoodfacts/types";
 interface BarcodeScannerProps {
   open: boolean;
   onClose: () => void;
-  onFoodFound: (food: TransformedOFFFood) => void;
+  /**
+   * Persist the scanned food. May be async — the scanner awaits it and blocks
+   * dismissal until it settles, so the save can't be lost by closing early.
+   */
+  onFoodFound: (food: TransformedOFFFood) => void | Promise<void>;
 }
 
 type ScanState =
@@ -23,6 +27,8 @@ type ScanState =
   | { type: "scanning" }
   | { type: "loading"; barcode: string }
   | { type: "found"; food: TransformedOFFFood }
+  | { type: "saving"; food: TransformedOFFFood }
+  | { type: "save_error"; food: TransformedOFFFood; message: string }
   | { type: "not_found"; barcode: string }
   | { type: "permission_denied" }
   | { type: "error"; message: string };
@@ -189,21 +195,51 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
     setTimeout(() => startScanner(), 100);
   };
 
-  const handleAddFood = () => {
-    if (scanState.type === "found") {
-      onFoodFound(scanState.food);
+  // Await the parent's save before closing. Previously this fired the save and
+  // closed in the same tick, so backing out during the (multi-second) round
+  // trip lost the food — and on the library screen the panel unmounts on close.
+  const handleAddFood = async () => {
+    const food =
+      scanState.type === "found" || scanState.type === "save_error"
+        ? scanState.food
+        : null;
+    if (!food) return;
+
+    setScanState({ type: "saving", food });
+    try {
+      await onFoodFound(food);
       onClose();
+    } catch (error) {
+      setScanState({
+        type: "save_error",
+        food,
+        message: error instanceof Error ? error.message : "Could not save this food",
+      });
     }
   };
 
   const handleClose = () => {
+    // Never drop a save that's still in flight.
+    if (scanState.type === "saving") return;
     stopScanner();
     onClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        showCloseButton={scanState.type !== "saving"}
+        onEscapeKeyDown={(e) => {
+          if (scanState.type === "saving") e.preventDefault();
+        }}
+        onPointerDownOutside={(e) => {
+          if (scanState.type === "saving") e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (scanState.type === "saving") e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5" />
@@ -329,6 +365,47 @@ export function BarcodeScanner({ open, onClose, onFoodFound }: BarcodeScannerPro
                 </Button>
                 <Button onClick={handleAddFood} className="flex-1">
                   Add to Library
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Saving — dialog cannot be dismissed while this is on screen */}
+          {scanState.type === "saving" && (
+            <div className="py-8 text-center space-y-4">
+              <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
+              <div>
+                <p className="font-medium">Saving to your library...</p>
+                <p className="text-sm text-muted-foreground truncate px-4">
+                  {scanState.food.name}
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Hang tight — don&apos;t close this yet.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Save failed — keep the food so it can be retried */}
+          {scanState.type === "save_error" && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-950 rounded-lg">
+                <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="font-medium text-red-900 dark:text-red-100">
+                    Couldn&apos;t save
+                  </p>
+                  <p className="text-sm text-red-700 dark:text-red-300">
+                    {scanState.message}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleClose} className="flex-1">
+                  Close
+                </Button>
+                <Button onClick={handleAddFood} className="flex-1">
+                  Try Again
                 </Button>
               </div>
             </div>

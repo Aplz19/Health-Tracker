@@ -331,8 +331,11 @@ export function useUserFoodLibrary(searchQuery: string = "") {
       await addExistingToLibrary(savedFood.id, false);
     }
 
-    // Refresh the library
-    await fetchLibrary();
+    // Revalidate in the background instead of blocking on it. The food is
+    // already persisted at this point, so awaiting a full library refetch here
+    // only added a round trip to the caller's wait (the scan felt ~a second
+    // slower than it needed to). The list updates as soon as it lands.
+    void fetchLibrary();
 
     return savedFood;
   };
