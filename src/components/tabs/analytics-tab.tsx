@@ -138,6 +138,14 @@ export function AnalyticsTab() {
 
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-3">
+          {/* Never let excluded days change the numbers silently. */}
+          {!isLoading && data.excludedNutritionDates.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Nutrition excludes {data.excludedNutritionDates.length} day
+              {data.excludedNutritionDates.length === 1 ? "" : "s"} marked
+              incomplete.
+            </p>
+          )}
           {isLoading || prefsLoading ? (
             <div className="text-center text-sm text-muted-foreground py-12">
               Loading analytics...

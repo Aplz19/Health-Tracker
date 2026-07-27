@@ -125,6 +125,15 @@ export interface DailySummaryData {
   // Optional: absent on summaries generated before habits v2.
   habits?: HabitSummaryEntry[];
   day_note?: string | null;
+  /**
+   * Per-day nutrition data-quality flag. Absent/null means the day was tracked
+   * normally; "incomplete" means the user marked it untrustworthy (partial or
+   * un-estimable logging). Analysis should exclude non-null days from
+   * nutrition averages and correlations by default, and say so in its output.
+   * Nutrition only — sleep/recovery/workout data for the same day is still
+   * valid and should be kept.
+   */
+  nutrition_quality?: "incomplete" | "estimated" | null;
 }
 
 export interface DailySummary {

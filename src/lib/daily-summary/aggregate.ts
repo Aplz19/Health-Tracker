@@ -267,7 +267,7 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
       .order("sort_order", { ascending: true }),
     supabase
       .from("daily_notes")
-      .select("note")
+      .select("note, nutrition_quality")
       .eq("date", date)
       .eq("user_id", userId)
       .single(),
@@ -309,6 +309,15 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
     ? ((noteResult.data?.note as string) || null)
     : null;
 
+  // Nutrition data-quality flag. Stamped into the summary rather than causing
+  // the day to be skipped: the aggregate stays complete and honest, and each
+  // analysis decides whether to include flagged days. Absent column (migration
+  // not yet applied) reads as null, i.e. tracked.
+  const nutrition_quality = !noteResult.error
+    ? ((noteResult.data as { nutrition_quality?: "incomplete" | "estimated" | null } | null)
+        ?.nutrition_quality ?? null)
+    : null;
+
   return {
     date,
     totals,
@@ -318,6 +327,7 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
     whoop,
     habits,
     day_note,
+    nutrition_quality,
   };
 }
 

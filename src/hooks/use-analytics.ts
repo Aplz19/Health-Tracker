@@ -77,7 +77,10 @@ export interface DailyCardio {
 }
 
 export interface AnalyticsData {
+  /** Excludes days flagged as incompletely tracked (see excludedNutritionDates). */
   nutrition: DailyNutrition[];
+  /** Days dropped from `nutrition` because the user marked them untrustworthy. */
+  excludedNutritionDates: string[];
   whoop: DailyWhoop[];
   creatine: DailyCreatine[];
   exercise: DailyExercise[];
@@ -102,6 +105,7 @@ function getDaysForRange(range: TimeRange): number {
 
 const EMPTY_ANALYTICS: AnalyticsData = {
   nutrition: [],
+  excludedNutritionDates: [],
   whoop: [],
   creatine: [],
   exercise: [],
@@ -328,26 +332,47 @@ export function useAnalytics(range: TimeRange = "7d") {
         allDates.push(format(subDays(new Date(), i), "yyyy-MM-dd"));
       }
 
-      const nutrition = allDates.map(date => nutritionByDate[date] || {
-        date,
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0,
-        saturatedFat: 0,
-        transFat: 0,
-        polyunsaturatedFat: 0,
-        monounsaturatedFat: 0,
-        sodium: 0,
-        fiber: 0,
-        sugar: 0,
-        addedSugar: 0,
-        vitaminA: 0,
-        vitaminC: 0,
-        vitaminD: 0,
-        calcium: 0,
-        iron: 0,
+      // Days the user marked as not-accurately-tracked. Their nutrition is
+      // dropped from every nutrition series: a partially-logged day looks like
+      // a genuine low-calorie day and would quietly drag averages and
+      // correlations. Only nutrition is affected — sleep, recovery and workout
+      // data for the same day are still real and stay in.
+      const excludedNutritionDates: string[] = [];
+      const { data: flaggedDays } = await supabase
+        .from("daily_notes")
+        .select("date, nutrition_quality")
+        .gte("date", startDate)
+        .lte("date", endDate)
+        .not("nutrition_quality", "is", null);
+
+      const excluded = new Set<string>();
+      (flaggedDays ?? []).forEach((row: { date: string }) => {
+        excluded.add(row.date);
+        excludedNutritionDates.push(row.date);
       });
+
+      const nutrition = allDates
+        .filter(date => !excluded.has(date))
+        .map(date => nutritionByDate[date] || {
+          date,
+          calories: 0,
+          protein: 0,
+          carbs: 0,
+          fat: 0,
+          saturatedFat: 0,
+          transFat: 0,
+          polyunsaturatedFat: 0,
+          monounsaturatedFat: 0,
+          sodium: 0,
+          fiber: 0,
+          sugar: 0,
+          addedSugar: 0,
+          vitaminA: 0,
+          vitaminC: 0,
+          vitaminD: 0,
+          calcium: 0,
+          iron: 0,
+        });
 
       const exercise = allDates.map(date => exerciseByDate[date] || {
         date,
@@ -362,7 +387,7 @@ export function useAnalytics(range: TimeRange = "7d") {
         totalMinutes: 0,
       });
 
-      const next = { nutrition, whoop, creatine, exercise, cardio };
+      const next = { nutrition, excludedNutritionDates, whoop, creatine, exercise, cardio };
       setData(next);
       setCached(cacheKey, next);
     } catch (error) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Copy, X, Pill } from "lucide-react";
+import { Plus, Copy, X, Pill, AlertTriangle } from "lucide-react";
 import { useDate } from "@/contexts/date-context";
 import { useApp } from "@/contexts/app-context";
 import { format, subDays } from "date-fns";
@@ -15,6 +15,7 @@ import { useFoodLogs } from "@/hooks/use-food-logs";
 import { useSupplement, fetchYesterdayAmount } from "@/hooks/use-supplement";
 import { useSupplementLogs } from "@/hooks/use-supplement-logs";
 import { useSupplementPreferencesContext } from "@/contexts/supplement-preferences-context";
+import { useNutritionDayQuality } from "@/hooks/use-nutrition-day-quality";
 import type { UserSupplement } from "@/types/supplements";
 
 // Manual mode supplement row - number input
@@ -216,6 +217,9 @@ export function DietaryTab() {
     biotin,
   };
 
+  // Per-day nutrition data-quality flag (bottom of this tab).
+  const dayQuality = useNutritionDayQuality(dateString);
+
   const [isFilling, setIsFilling] = useState(false);
 
   const fillFromYesterday = async () => {
@@ -252,6 +256,17 @@ export function DietaryTab() {
       <div className="text-center text-sm text-muted-foreground">
         {format(selectedDate, "EEEE, MMMM d, yyyy")}
       </div>
+
+      {/* Flagged-day marker: without this, scrolling back to a low-calorie day
+          months later gives no hint that it was deliberately not tracked. */}
+      {dayQuality.isIncomplete && (
+        <div className="flex items-center gap-2 rounded-lg border border-dashed border-yellow-600/50 bg-yellow-500/10 px-3 py-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-600" />
+          <p className="text-xs text-yellow-700 dark:text-yellow-300">
+            Nutrition marked incomplete — this day is excluded from analysis.
+          </p>
+        </div>
+      )}
 
       {/* Nutrition Summary */}
       <NutritionSummary logs={logs} />
@@ -391,6 +406,37 @@ export function DietaryTab() {
           ))
         )}
       </div>
+
+      {/* Day data quality — marks this day's nutrition as not trustworthy so
+          it is excluded from analysis. Hidden until the migration is applied. */}
+      {dayQuality.available && (
+        <div className="space-y-2">
+          <span className="text-sm font-medium text-muted-foreground">
+            Day Data Quality
+          </span>
+          <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
+            <label
+              htmlFor="nutrition-incomplete"
+              className="flex-1 min-w-0 cursor-pointer pr-3"
+            >
+              <span className="font-medium text-sm">Incomplete nutrition</span>
+              <span className="block text-xs text-muted-foreground mt-0.5">
+                Excludes this day from nutrition analysis
+              </span>
+            </label>
+            <Checkbox
+              id="nutrition-incomplete"
+              checked={dayQuality.isIncomplete}
+              disabled={dayQuality.isSaving}
+              onCheckedChange={(checked) => {
+                dayQuality.setQuality(checked === true ? "incomplete" : null).catch(() => {
+                  // Hook rolls the checkbox back on failure.
+                });
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
