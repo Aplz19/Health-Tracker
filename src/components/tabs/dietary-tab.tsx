@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Copy, X, Pill, AlertTriangle } from "lucide-react";
+import { Plus, Copy, AlertTriangle } from "lucide-react";
 import { useDate } from "@/contexts/date-context";
-import { useApp } from "@/contexts/app-context";
 import { format, subDays } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +12,6 @@ import { NutritionSummary } from "@/components/dietary/nutrition-summary";
 import { useMeals } from "@/hooks/use-meals";
 import { useFoodLogs } from "@/hooks/use-food-logs";
 import { useSupplement, fetchYesterdayAmount } from "@/hooks/use-supplement";
-import { useSupplementLogs } from "@/hooks/use-supplement-logs";
 import { useSupplementPreferencesContext } from "@/contexts/supplement-preferences-context";
 import { useNutritionDayQuality } from "@/hooks/use-nutrition-day-quality";
 import type { UserSupplement } from "@/types/supplements";
@@ -145,7 +143,6 @@ function SupplementRowWrapper({
 
 export function DietaryTab() {
   const { selectedDate } = useDate();
-  const { openSupplementLibrary } = useApp();
   const dateString = format(selectedDate, "yyyy-MM-dd");
 
   const {
@@ -168,13 +165,6 @@ export function DietaryTab() {
   // Get enabled supplements from preferences
   const { getEnabledSupplements, isLoading: isPrefsLoading } = useSupplementPreferencesContext();
   const enabledSupplements = getEnabledSupplements();
-
-  // Ad-hoc supplement logs
-  const {
-    logs: supplementLogs,
-    isLoading: isSupplementLogsLoading,
-    deleteLog: deleteSupplementLog,
-  } = useSupplementLogs(dateString);
 
   // Create hooks for all possible supplements (needed for consistent hook calls).
   // Each hook is gated by whether the user actually tracks that supplement, so
@@ -351,59 +341,6 @@ export function DietaryTab() {
               />
             );
           })
-        )}
-      </div>
-
-      {/* Other Supplements Section (ad-hoc logging) */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-muted-foreground">Other Supplements</span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={openSupplementLibrary}
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            Add
-          </Button>
-        </div>
-
-        {isSupplementLogsLoading ? (
-          <div className="rounded-lg border bg-card px-4 py-3 text-center">
-            <span className="text-sm text-muted-foreground">Loading...</span>
-          </div>
-        ) : supplementLogs.length === 0 ? (
-          <div className="rounded-lg border-2 border-dashed p-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              Log occasional supplements here
-            </p>
-          </div>
-        ) : (
-          supplementLogs.map((log) => (
-            <div
-              key={log.id}
-              className="flex items-center justify-between rounded-lg border bg-card px-4 py-2"
-            >
-              <div className="flex items-center gap-2">
-                <Pill className="h-4 w-4 text-primary" />
-                <span className="font-medium text-sm">{log.supplement_name}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  {log.amount} {log.unit}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => deleteSupplementLog(log.id)}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          ))
         )}
       </div>
 
