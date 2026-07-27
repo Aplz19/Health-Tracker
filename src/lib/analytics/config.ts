@@ -11,16 +11,12 @@ import {
   Weight,
   Cookie,
   Salad,
-  CircleDot,
   Thermometer,
   Wind,
   Timer,
   TrendingUp,
   Gauge,
   Sparkles,
-  Sun,
-  Milk,
-  Apple,
 } from "lucide-react";
 import type { MetricDefinition } from "@/types/analytics";
 import { SUPPLEMENT_DEFINITIONS } from "@/lib/supplements/config";
@@ -168,51 +164,14 @@ const BASE_METRIC_DEFINITIONS: MetricDefinition[] = [
   },
 
   // ===== NUTRITION - Micronutrients =====
-  {
-    key: "vitaminA",
-    label: "Vitamin A",
-    category: "nutrition",
-    unit: "mcg",
-    color: "#f59e0b",
-    decimals: 0,
-    icon: Sun,
-  },
-  {
-    key: "vitaminC",
-    label: "Vitamin C",
-    category: "nutrition",
-    unit: "mg",
-    color: "#fb923c",
-    decimals: 0,
-    icon: Apple,
-  },
-  {
-    key: "vitaminD",
-    label: "Vitamin D",
-    category: "nutrition",
-    unit: "mcg",
-    color: "#fbbf24",
-    decimals: 0,
-    icon: Sun,
-  },
-  {
-    key: "calcium",
-    label: "Calcium",
-    category: "nutrition",
-    unit: "mg",
-    color: "#e2e8f0",
-    decimals: 0,
-    icon: Milk,
-  },
-  {
-    key: "iron",
-    label: "Iron",
-    category: "nutrition",
-    unit: "mg",
-    color: "#78716c",
-    decimals: 1,
-    icon: CircleDot,
-  },
+  // Deliberately NOT chartable. Vitamin A/C/D, calcium and iron are sourced
+  // from logged foods, and Open Food Facts barcode data almost never carries
+  // those fields — the charts were flat zero, which reads as "you got none"
+  // rather than the truth, "this isn't measured". Supplement metrics (below,
+  // generated from SUPPLEMENT_DEFINITIONS) are the real way to track intake.
+  //
+  // The values are still aggregated into daily_summaries for AI analysis, and
+  // DailyNutrition still carries them — only the chart options are removed.
 
   // ===== WHOOP =====
   {

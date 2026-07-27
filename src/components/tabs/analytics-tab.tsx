@@ -74,12 +74,8 @@ export function AnalyticsTab() {
     sugar: data.nutrition.map(d => ({ date: d.date, value: d.sugar })),
     addedSugar: data.nutrition.map(d => ({ date: d.date, value: d.addedSugar })),
     sodium: data.nutrition.map(d => ({ date: d.date, value: d.sodium })),
-    // Nutrition - Micronutrients
-    vitaminA: data.nutrition.map(d => ({ date: d.date, value: d.vitaminA })),
-    vitaminC: data.nutrition.map(d => ({ date: d.date, value: d.vitaminC })),
-    vitaminD: data.nutrition.map(d => ({ date: d.date, value: d.vitaminD })),
-    calcium: data.nutrition.map(d => ({ date: d.date, value: d.calcium })),
-    iron: data.nutrition.map(d => ({ date: d.date, value: d.iron })),
+    // Nutrition - Micronutrients are intentionally not charted; see
+    // lib/analytics/config.ts. Track intake via the supplement metrics instead.
     // Whoop
     recovery: data.whoop.filter(d => d.recovery !== null).map(d => ({ date: d.date, value: d.recovery! })),
     hrv: data.whoop.filter(d => d.hrv !== null).map(d => ({ date: d.date, value: d.hrv! })),
