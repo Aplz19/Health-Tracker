@@ -47,6 +47,20 @@ docs/              operational setup notes
 7. `foods.name` is the item and nullable `brand` is the manufacturer/restaurant.
    `source` is provenance (`manual`, `openfoodfacts`,
    `restaurant_official`, etc.), not a display label.
+8. **Await a write before closing the UI that started it, and block dismissal
+   while it is in flight.** Firing a save and closing in the same tick is a
+   race: overlays such as `FoodPanel` are conditionally mounted and unmount on
+   close, so anything still pending is lost and the failure is silent. The
+   barcode scanner is the reference implementation — it awaits `onFoodFound`,
+   shows a saving state, hides the close button, suppresses escape and
+   outside-click, and surfaces a retryable error.
+9. **Client writes to `foods` / `user_food_library` must go through the
+   SECURITY DEFINER RPCs** (`add_food_to_my_library`, `save_my_manual_food`,
+   `remove_food_from_my_library`) or the service-role `POST /api/food/barcode`.
+   `add_food_search_v2.sql` revoked direct `INSERT/UPDATE/DELETE` from
+   `authenticated`, so a direct table write fails with an opaque permission
+   error. If an RPC is missing, throw an actionable error — never fall back to
+   a direct write.
 
 ## Habits v2
 

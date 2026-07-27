@@ -18,6 +18,19 @@ export interface LibraryFood extends Food {
   added_at: string;
 }
 
+// add_food_search_v2.sql revoked INSERT/UPDATE/DELETE on foods and
+// user_food_library from `authenticated`, so every client write must go through
+// a SECURITY DEFINER RPC (or the service-role barcode API). If an RPC is
+// missing, the deployment is inconsistent: fail loudly with something
+// actionable rather than attempting a direct write that RLS will deny with an
+// opaque permission error.
+function missingRpcError(rpc: string): Error {
+  return new Error(
+    `Food database is out of date: the "${rpc}" function is missing. ` +
+      `Run sql/add_food_search_v2.sql in Supabase.`
+  );
+}
+
 function isMissingRpc(error: { code?: string; message?: string } | null): boolean {
   return Boolean(
     error &&
@@ -65,41 +78,6 @@ function toManualFoodInput(food: Food | FoodInsert) {
     calcium: food.calcium,
     iron: food.iron,
   };
-}
-
-const LEGACY_MUTABLE_FOOD_FIELDS = [
-  "name",
-  "serving_size",
-  "serving_size_grams",
-  "calories",
-  "protein",
-  "total_fat",
-  "saturated_fat",
-  "trans_fat",
-  "polyunsaturated_fat",
-  "monounsaturated_fat",
-  "sodium",
-  "total_carbohydrates",
-  "fiber",
-  "sugar",
-  "added_sugar",
-  "vitamin_a",
-  "vitamin_c",
-  "vitamin_d",
-  "calcium",
-  "iron",
-  "fdc_id",
-  "barcode",
-  "source",
-] as const;
-
-function toLegacyFoodMutation(food: Partial<FoodInsert>): Record<string, unknown> {
-  const source = food as Record<string, unknown>;
-  return Object.fromEntries(
-    LEGACY_MUTABLE_FOOD_FIELDS
-      .filter((field) => field in source)
-      .map((field) => [field, source[field]])
-  );
 }
 
 export function useUserFoodLibrary(searchQuery: string = "") {
@@ -252,16 +230,7 @@ export function useUserFoodLibrary(searchQuery: string = "") {
         } else if (rpcError && !isMissingRpc(rpcError)) {
           throw rpcError;
         } else {
-          // Compatibility path until add_food_search_v2.sql is deployed.
-          const { data, error } = await supabase
-            .from("foods")
-            .insert(toLegacyFoodMutation(food))
-            .select(FOOD_CLIENT_COLUMNS)
-            .single();
-          if (error) throw error;
-          savedFood = normalizeFood(
-            data as unknown as Parameters<typeof normalizeFood>[0]
-          );
+          throw missingRpcError("save_my_manual_food");
         }
       // Check if a food with this barcode already exists in global library
       } else if (food.barcode) {
@@ -283,43 +252,18 @@ export function useUserFoodLibrary(searchQuery: string = "") {
           const payload = (await response.json().catch(() => null)) as { error?: string } | null;
           throw new Error(payload?.error || "Could not save barcode food");
         } else {
-          // Legacy local deployments may not have a service-role key yet.
-        const { data: existingByBarcode } = await supabase
-          .from("foods")
-          .select(FOOD_CLIENT_COLUMNS)
-          .eq("barcode", food.barcode)
-          .maybeSingle();
-
-        if (existingByBarcode) {
-          // Reuse existing food entry
-          savedFood = normalizeFood(
-            existingByBarcode as unknown as Parameters<typeof normalizeFood>[0]
+          // 503 = the server has no service-role key, so it cannot write the
+          // global food row. The client cannot do it either (writes revoked).
+          throw new Error(
+            "Barcode saving is unavailable: the server is missing SUPABASE_SERVICE_ROLE_KEY."
           );
-        } else {
-          // Create new food entry
-          const { data, error } = await supabase
-            .from("foods")
-            .insert(toLegacyFoodMutation(food))
-            .select(FOOD_CLIENT_COLUMNS)
-            .single();
-
-          if (error) throw error;
-          savedFood = normalizeFood(
-            data as unknown as Parameters<typeof normalizeFood>[0]
-          );
-        }
         }
       } else {
-        // No barcode, create new entry
-        const { data, error } = await supabase
-          .from("foods")
-          .insert(toLegacyFoodMutation(food))
-          .select(FOOD_CLIENT_COLUMNS)
-          .single();
-
-        if (error) throw error;
-        savedFood = normalizeFood(
-          data as unknown as Parameters<typeof normalizeFood>[0]
+        // Non-manual food with no barcode. Nothing in the UI produces this
+        // (the add-food form sets source: "manual"), and there is no RPC for
+        // it, so treat it as a bug rather than attempting a revoked insert.
+        throw new Error(
+          "Cannot save this food: it has no barcode and is not a manual food."
         );
       }
     } else {
@@ -352,27 +296,7 @@ export function useUserFoodLibrary(searchQuery: string = "") {
       return;
     }
     if (!isMissingRpc(rpcError)) throw rpcError;
-
-    // Compatibility path until add_food_search_v2.sql is deployed.
-    const { data: existing } = await supabase
-      .from("user_food_library")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("food_id", foodId)
-      .maybeSingle();
-
-    if (existing) return;
-
-    const { error } = await supabase
-      .from("user_food_library")
-      .insert({
-        user_id: user.id,
-        food_id: foodId,
-      });
-
-    if (error) throw error;
-
-    if (refresh) await fetchLibrary();
+    throw missingRpcError("add_food_to_my_library");
   };
 
   // Remove food from user's library (doesn't delete from global cache)
@@ -389,19 +313,11 @@ export function useUserFoodLibrary(searchQuery: string = "") {
         return;
       }
       if (!isMissingRpc(rpcError)) throw rpcError;
+      throw missingRpcError("remove_food_from_my_library");
     }
 
-    // Compatibility path until add_food_search_v2.sql is deployed.
-    const { error } = await supabase
-      .from("user_food_library")
-      .delete()
-      .eq("id", libraryId)
-      .eq("user_id", user.id);
-
-    if (error) throw error;
-
-    // Optimistic update
-    setAllFoods((prev) => prev.filter((f) => f.library_id !== libraryId));
+    // No cached row for this library_id — nothing we can resolve to a food id.
+    throw new Error("Could not find that food in your library.");
   };
 
   // Update a food in the global cache (user must own it in their library)
@@ -421,28 +337,7 @@ export function useUserFoodLibrary(searchQuery: string = "") {
       return;
     }
     if (!isMissingRpc(rpcError)) throw rpcError;
-
-    // Compatibility path until add_food_search_v2.sql is deployed.
-    const { data: libraryEntry } = await supabase
-      .from("user_food_library")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("food_id", foodId)
-      .maybeSingle();
-    if (!libraryEntry) throw new Error("Food is not in your library");
-
-    const { error } = await supabase
-      .from("foods")
-      .update(toLegacyFoodMutation(updates))
-      .eq("id", foodId)
-      .eq("source", "manual");
-
-    if (error) {
-      console.error("Failed to update food:", error);
-      throw error;
-    }
-
-    await fetchLibrary();
+    throw missingRpcError("save_my_manual_food");
   };
 
   // Check if a food is in user's library
