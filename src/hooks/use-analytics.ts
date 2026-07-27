@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getCached, hasCached, setCached } from "@/lib/client-cache";
+import { SUPPLEMENT_METRIC_TABLES } from "@/lib/analytics/config";
 import type {
   ExerciseSet,
   Food,
@@ -63,6 +64,12 @@ export interface DailyCreatine {
   amount: number;
 }
 
+/** A supplement's logged amount for one day, in that supplement's own unit. */
+export interface DailySupplementAmount {
+  date: string;
+  amount: number;
+}
+
 export interface DailyExercise {
   date: string;
   workouts: number;
@@ -83,6 +90,12 @@ export interface AnalyticsData {
   excludedNutritionDates: string[];
   whoop: DailyWhoop[];
   creatine: DailyCreatine[];
+  /**
+   * Daily amounts per supplement key (creatine, d3, k2, ...), each in that
+   * supplement's own unit. Only populated for supplements requested via the
+   * hook's `supplementKeys` argument.
+   */
+  supplements: Record<string, DailySupplementAmount[]>;
   exercise: DailyExercise[];
   cardio: DailyCardio[];
 }
@@ -108,6 +121,7 @@ const EMPTY_ANALYTICS: AnalyticsData = {
   excludedNutritionDates: [],
   whoop: [],
   creatine: [],
+  supplements: {},
   exercise: [],
   cardio: [],
 };
@@ -151,8 +165,19 @@ interface AnalyticsExerciseLog {
 
 type AnalyticsCardioLog = Pick<TreadmillSession, "date" | "duration_minutes">;
 
-export function useAnalytics(range: TimeRange = "7d") {
-  const cacheKey = `analytics:${range}`;
+export function useAnalytics(
+  range: TimeRange = "7d",
+  /**
+   * Supplement metric keys to fetch (e.g. ["creatine", "d3"]). Each costs one
+   * query, so callers pass only what the user has enabled — the repo's
+   * "gate unused queries" convention.
+   */
+  supplementKeys: string[] = []
+) {
+  // Sorted + joined so the key is stable regardless of argument order, and so
+  // changing the enabled set busts the cache rather than serving a stale shape.
+  const supplementCacheKey = [...supplementKeys].sort().join(",");
+  const cacheKey = `analytics:${range}:${supplementCacheKey}`;
   const [data, setData] = useState<AnalyticsData>(
     () => getCached<AnalyticsData>(cacheKey) ?? EMPTY_ANALYTICS
   );
@@ -170,7 +195,6 @@ export function useAnalytics(range: TimeRange = "7d") {
       const [
         { data: foodLogs },
         { data: whoopData },
-        { data: creatineData },
         { data: exerciseLogs },
         { data: cardioLogs },
       ] = await Promise.all([
@@ -202,12 +226,6 @@ export function useAnalytics(range: TimeRange = "7d") {
           .select(
             "date, recovery_score, hrv_rmssd, resting_heart_rate, sleep_score, sleep_duration_minutes, strain_score, spo2_percentage, skin_temp_celsius, kilojoules, avg_heart_rate, max_heart_rate"
           )
-          .gte("date", startDate)
-          .lte("date", endDate)
-          .order("date", { ascending: true }),
-        supabase
-          .from("creatine_logs")
-          .select("date, amount")
           .gte("date", startDate)
           .lte("date", endDate)
           .order("date", { ascending: true }),
@@ -294,10 +312,38 @@ export function useAnalytics(range: TimeRange = "7d") {
         maxHeartRate: d.max_heart_rate,
       })) || [];
 
-      const creatine: DailyCreatine[] = (creatineData as AnalyticsCreatineLog[] | null)?.map((d) => ({
-        date: d.date,
-        amount: d.amount,
-      })) || [];
+      // Supplements: one query per requested supplement table, in parallel.
+      // Only the supplements whose analytics metric is enabled are fetched, so
+      // this stays cheap (and is skipped entirely when none are enabled).
+      const supplements: Record<string, DailySupplementAmount[]> = {};
+      if (supplementKeys.length > 0) {
+        const results = await Promise.all(
+          supplementKeys.map(async (key) => {
+            const table = SUPPLEMENT_METRIC_TABLES[key];
+            if (!table) return { key, rows: [] as DailySupplementAmount[] };
+            const { data } = await supabase
+              .from(table)
+              .select("date, amount")
+              .gte("date", startDate)
+              .lte("date", endDate)
+              .order("date", { ascending: true });
+            return {
+              key,
+              rows:
+                (data as AnalyticsCreatineLog[] | null)?.map((d) => ({
+                  date: d.date,
+                  amount: d.amount,
+                })) ?? [],
+            };
+          })
+        );
+        results.forEach(({ key, rows }) => {
+          supplements[key] = rows;
+        });
+      }
+
+      // Kept so existing consumers of `creatine` keep working.
+      const creatine: DailyCreatine[] = supplements.creatine ?? [];
 
       // Aggregate exercise by date
       const exerciseByDate: Record<string, DailyExercise> = {};
@@ -387,7 +433,15 @@ export function useAnalytics(range: TimeRange = "7d") {
         totalMinutes: 0,
       });
 
-      const next = { nutrition, excludedNutritionDates, whoop, creatine, exercise, cardio };
+      const next = {
+        nutrition,
+        excludedNutritionDates,
+        whoop,
+        creatine,
+        supplements,
+        exercise,
+        cardio,
+      };
       setData(next);
       setCached(cacheKey, next);
     } catch (error) {
@@ -395,7 +449,10 @@ export function useAnalytics(range: TimeRange = "7d") {
     } finally {
       setIsLoading(false);
     }
-  }, [range, cacheKey]);
+    // supplementCacheKey (not the array) is the dependency, so a caller passing
+    // a fresh array literal every render doesn't cause a refetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, cacheKey, supplementCacheKey]);
 
   useEffect(() => {
     // On range change: swap in cached data instantly, then revalidate.

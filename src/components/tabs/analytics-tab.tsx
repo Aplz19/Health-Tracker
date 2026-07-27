@@ -16,22 +16,16 @@ const MetricDetailSheet = dynamic(
   { ssr: false }
 );
 import { useAnalytics, TIME_RANGE_OPTIONS, type TimeRange } from "@/hooks/use-analytics";
+import { SUPPLEMENT_METRIC_KEYS } from "@/lib/analytics/config";
 import { useAnalyticsPreferencesContext } from "@/contexts/analytics-preferences-context";
 
-type MetricType =
-  // Nutrition - Macros
-  | "calories" | "protein" | "carbs" | "fat"
-  | "saturatedFat" | "transFat" | "polyunsaturatedFat" | "monounsaturatedFat"
-  | "fiber" | "sugar" | "addedSugar" | "sodium"
-  // Nutrition - Micronutrients
-  | "vitaminA" | "vitaminC" | "vitaminD" | "calcium" | "iron"
-  // Whoop
-  | "recovery" | "hrv" | "rhr" | "sleepScore" | "sleepDuration" | "strain"
-  | "spo2" | "skinTemp" | "kilojoules" | "avgHeartRate" | "maxHeartRate"
-  // Exercise
-  | "workouts" | "volume" | "sets" | "cardioSessions" | "cardioMinutes"
-  // Supplements
-  | "creatine";
+// Metric keys are no longer a closed set: nutrition/whoop/exercise keys are
+// fixed, but supplement keys are generated from SUPPLEMENT_DEFINITIONS, so a
+// new supplement adds a metric without touching this file. METRIC_DEFINITIONS
+// in lib/analytics/config.ts is the source of truth for what exists.
+type MetricType = string;
+
+type MetricSeries = { date: string; value: number }[];
 
 interface MetricConfig {
   type: MetricType;
@@ -50,13 +44,23 @@ const TIME_RANGES = TIME_RANGE_OPTIONS.map(opt => ({
 export function AnalyticsTab() {
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
   const [selectedMetric, setSelectedMetric] = useState<MetricConfig | null>(null);
-  const { data, isLoading } = useAnalytics(timeRange);
   const { getEnabledMetrics, isLoading: prefsLoading } = useAnalyticsPreferencesContext();
 
   const enabledMetrics = getEnabledMetrics();
 
+  // Only fetch supplement tables the user actually charts (one query each).
+  const enabledSupplementKeys = useMemo(
+    () =>
+      enabledMetrics
+        .map((m) => m.definition.key)
+        .filter((key) => SUPPLEMENT_METRIC_KEYS.has(key)),
+    [enabledMetrics]
+  );
+
+  const { data, isLoading } = useAnalytics(timeRange, enabledSupplementKeys);
+
   // Prepare all metric data
-  const allMetricData = useMemo(() => ({
+  const allMetricData: Record<string, MetricSeries> = useMemo(() => ({
     // Nutrition - Macros
     calories: data.nutrition.map(d => ({ date: d.date, value: d.calories })),
     protein: data.nutrition.map(d => ({ date: d.date, value: d.protein })),
@@ -94,8 +98,14 @@ export function AnalyticsTab() {
     sets: data.exercise.map(d => ({ date: d.date, value: d.totalSets })),
     cardioSessions: data.cardio.map(d => ({ date: d.date, value: d.sessions })),
     cardioMinutes: data.cardio.map(d => ({ date: d.date, value: d.totalMinutes })),
-    // Supplements
-    creatine: data.creatine.map(d => ({ date: d.date, value: d.amount })),
+    // Supplements — every tracked supplement, not just creatine. Each series
+    // comes from that supplement's own _logs table in its own unit.
+    ...Object.fromEntries(
+      Object.entries(data.supplements).map(([key, rows]) => [
+        key,
+        rows.map((d) => ({ date: d.date, value: d.amount })),
+      ])
+    ),
   }), [data]);
 
   const openMetric = (config: MetricConfig) => {
@@ -104,7 +114,7 @@ export function AnalyticsTab() {
 
   // Get current data for selected metric
   const selectedMetricData = selectedMetric
-    ? allMetricData[selectedMetric.type]
+    ? allMetricData[selectedMetric.type] ?? []
     : [];
 
   return (
@@ -165,8 +175,9 @@ export function AnalyticsTab() {
                   return null;
                 }
 
-                // Skip creatine if no data
-                if (key === "creatine" && data.creatine.length === 0) {
+                // Skip any supplement with nothing logged in this range, rather
+                // than showing a flat-zero card that looks broken.
+                if (SUPPLEMENT_METRIC_KEYS.has(key) && metricData.length === 0) {
                   return null;
                 }
 

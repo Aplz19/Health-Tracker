@@ -9,7 +9,6 @@ import {
   Zap,
   Dumbbell,
   Weight,
-  Pill,
   Cookie,
   Salad,
   CircleDot,
@@ -24,8 +23,40 @@ import {
   Apple,
 } from "lucide-react";
 import type { MetricDefinition } from "@/types/analytics";
+import { SUPPLEMENT_DEFINITIONS } from "@/lib/supplements/config";
 
-export const METRIC_DEFINITIONS: MetricDefinition[] = [
+// Every tracked supplement gets an analytics metric, derived from its existing
+// definition so the two can never drift and new supplements appear here
+// automatically. Previously only creatine was wired up, so a supplement like
+// Vitamin D3 had nowhere to show its data.
+//
+// These are deliberately SEPARATE from the same-named nutrition metrics, which
+// are sourced from logged food. "Vitamin D" (nutrition) is dietary intake in
+// mcg; "Vitamin D3" (supplement) is what you took, in IU. Summing them would be
+// wrong by a factor of 40 (1 mcg = 40 IU), so they stay distinct series.
+const SUPPLEMENT_METRIC_DEFINITIONS: MetricDefinition[] = SUPPLEMENT_DEFINITIONS.map(
+  (supplement) => ({
+    key: supplement.key,
+    label: supplement.label,
+    category: "supplements" as const,
+    unit: supplement.unit === "IU" ? " IU" : supplement.unit,
+    color: "#a855f7",
+    decimals: 0,
+    icon: supplement.icon,
+  })
+);
+
+/** Metric keys that read a supplement `_logs` table rather than food logs. */
+export const SUPPLEMENT_METRIC_KEYS = new Set(
+  SUPPLEMENT_DEFINITIONS.map((s) => s.key)
+);
+
+/** Metric key -> the Supabase table holding that supplement's daily amounts. */
+export const SUPPLEMENT_METRIC_TABLES: Record<string, string> = Object.fromEntries(
+  SUPPLEMENT_DEFINITIONS.map((s) => [s.key, s.table])
+);
+
+const BASE_METRIC_DEFINITIONS: MetricDefinition[] = [
   // ===== NUTRITION - Macros =====
   {
     key: "calories",
@@ -332,15 +363,13 @@ export const METRIC_DEFINITIONS: MetricDefinition[] = [
   },
 
   // ===== SUPPLEMENTS =====
-  {
-    key: "creatine",
-    label: "Creatine",
-    category: "supplements",
-    unit: "g",
-    color: "#a855f7",
-    decimals: 0,
-    icon: Pill,
-  },
+  // Generated from SUPPLEMENT_DEFINITIONS below (this used to hardcode only
+  // creatine, which is why no other supplement could be charted).
+];
+
+export const METRIC_DEFINITIONS: MetricDefinition[] = [
+  ...BASE_METRIC_DEFINITIONS,
+  ...SUPPLEMENT_METRIC_DEFINITIONS,
 ];
 
 export function getMetricByKey(key: string): MetricDefinition | undefined {
