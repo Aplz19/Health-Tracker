@@ -38,6 +38,12 @@ function formatTime(isoString: string): string {
   return format(parseISO(isoString), "MMM d, h:mm a");
 }
 
+// Auto-sync on open, throttled across dialog opens (module scope survives
+// remounts). A short window is enough to pick up a workout you just finished.
+const AUTO_SYNC_COOLDOWN_MS = 60_000;
+const AUTO_SYNC_DAYS = 7;
+let lastAutoSyncAt = 0;
+
 export function WhoopLinkDialog({
   open,
   onClose,
@@ -47,10 +53,34 @@ export function WhoopLinkDialog({
   const [isSelecting, setIsSelecting] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) {
-      fetchWorkouts({ unlinkedOnly: true });
-    }
-  }, [open, fetchWorkouts]);
+    if (!open) return;
+    let cancelled = false;
+
+    (async () => {
+      // Show whatever is already cached immediately...
+      await fetchWorkouts({ unlinkedOnly: true });
+      if (cancelled) return;
+
+      // ...then pull fresh workouts from Whoop automatically. The cron only
+      // runs daily, so a workout finished an hour ago wouldn't be here yet and
+      // previously required tapping "Sync from Whoop" by hand. Throttled so
+      // reopening the dialog repeatedly doesn't hammer the API.
+      if (Date.now() - lastAutoSyncAt < AUTO_SYNC_COOLDOWN_MS) return;
+      lastAutoSyncAt = Date.now();
+
+      try {
+        await syncWorkouts(AUTO_SYNC_DAYS);
+      } catch {
+        // Manual "Sync from Whoop" remains available as a retry.
+        return;
+      }
+      if (!cancelled) await fetchWorkouts({ unlinkedOnly: true });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, fetchWorkouts, syncWorkouts]);
 
   const handleSync = async () => {
     await syncWorkouts(30);

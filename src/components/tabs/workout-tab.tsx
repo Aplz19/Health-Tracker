@@ -7,6 +7,11 @@ import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useExerciseLogs } from "@/hooks/use-exercise-logs";
+import {
+  useLastExercisePerformance,
+  getReferenceSet,
+  type LastSetPerformance,
+} from "@/hooks/use-last-exercise-performance";
 import { useTreadmill } from "@/hooks/use-treadmill";
 import { useWorkoutSessions } from "@/hooks/use-workout-sessions";
 import { ExercisePickerDialog } from "@/components/exercise/exercise-picker-dialog";
@@ -20,10 +25,16 @@ import type { CardioExerciseType } from "@/lib/supabase/types";
 // Individual set row component
 function SetRow({
   set,
+  label,
+  lastSet,
   onUpdate,
   onDelete,
 }: {
   set: ExerciseSetWithDetails;
+  /** "W1" for warm-ups, "1".."n" for working sets — numbered independently. */
+  label: string;
+  /** Same-position set from the last session, shown as ghost text. */
+  lastSet: LastSetPerformance | null;
   onUpdate: (updates: { is_warmup?: boolean; reps?: number | null; weight?: number | null; notes?: string | null }) => void;
   onDelete: () => void;
 }) {
@@ -56,46 +67,72 @@ function SetRow({
     onUpdate({ is_warmup: !set.is_warmup });
   };
 
+  // Double-tap a field to carry last session's number forward — most weeks
+  // are the same weight and reps, so this is the common case.
+  const fillWeightFromLast = () => {
+    if (lastSet?.weight == null) return;
+    const value = lastSet.weight.toString();
+    setWeight(value);
+    if (lastSet.weight !== set.weight) onUpdate({ weight: lastSet.weight });
+  };
+
+  const fillRepsFromLast = () => {
+    if (lastSet?.reps == null) return;
+    const value = lastSet.reps.toString();
+    setReps(value);
+    if (lastSet.reps !== set.reps) onUpdate({ reps: lastSet.reps });
+  };
+
   return (
-    <div className="space-y-1">
+    <div className={`space-y-1 ${set.is_warmup ? "opacity-75" : ""}`}>
       <div className="flex items-center gap-2">
-        {/* Set number & type toggle */}
+        {/* Set label & warm-up toggle. Warm-ups are amber "W1"; working sets
+            are numbered independently so the first working set always reads
+            "1" even after warm-ups. */}
         <button
           onClick={toggleWarmup}
-          className={`w-8 h-8 rounded text-xs font-medium flex items-center justify-center transition-colors ${
+          className={`w-9 h-8 shrink-0 rounded text-xs font-semibold flex items-center justify-center transition-colors ${
             set.is_warmup
               ? "bg-amber-500/20 text-amber-500 border border-amber-500/30"
               : "bg-primary/20 text-primary border border-primary/30"
           }`}
-          title={set.is_warmup ? "Warm-up set (click to change)" : "Working set (click to change)"}
+          aria-label={
+            set.is_warmup
+              ? `Warm-up set ${label}. Tap to make it a working set.`
+              : `Working set ${label}. Tap to make it a warm-up.`
+          }
+          title={set.is_warmup ? "Warm-up set — tap to make working" : "Working set — tap to make warm-up"}
         >
-          {set.is_warmup ? "W" : set.set_number}
+          {label}
         </button>
 
-        {/* Reps input */}
-        <div className="flex-1">
-          <Input
-            type="number"
-            value={reps}
-            onChange={(e) => setReps(e.target.value)}
-            onBlur={handleRepsBlur}
-            placeholder="Reps"
-            className="h-8 text-center text-sm"
-            min={0}
-          />
-        </div>
-
-        {/* Weight input */}
+        {/* Weight input (before reps: you pick the weight, then see how many
+            you get) — ghost text is last session's weight. */}
         <div className="flex-1">
           <Input
             type="number"
             value={weight}
             onChange={(e) => setWeight(e.target.value)}
             onBlur={handleWeightBlur}
-            placeholder="lbs"
+            onDoubleClick={fillWeightFromLast}
+            placeholder={lastSet?.weight != null ? lastSet.weight.toString() : "lbs"}
             className="h-8 text-center text-sm"
             min={0}
             step={2.5}
+          />
+        </div>
+
+        {/* Reps input — ghost text is last session's reps. */}
+        <div className="flex-1">
+          <Input
+            type="number"
+            value={reps}
+            onChange={(e) => setReps(e.target.value)}
+            onBlur={handleRepsBlur}
+            onDoubleClick={fillRepsFromLast}
+            placeholder={lastSet?.reps != null ? lastSet.reps.toString() : "Reps"}
+            className="h-8 text-center text-sm"
+            min={0}
           />
         </div>
 
@@ -138,17 +175,46 @@ function SetRow({
 // Exercise card with all its sets
 function ExerciseCard({
   log,
+  lastPerformance,
   onAddSet,
   onUpdateSet,
   onDeleteSet,
   onDeleteLog,
 }: {
   log: ExerciseLogWithDetails;
+  /** Working sets from the last time this exercise was trained. */
+  lastPerformance: LastSetPerformance[] | undefined;
   onAddSet: () => void;
   onUpdateSet: (setId: string, updates: { is_warmup?: boolean; reps?: number | null; weight?: number | null; notes?: string | null }) => void;
   onDeleteSet: (setId: string) => void;
   onDeleteLog: () => void;
 }) {
+  // Warm-ups and working sets are numbered independently (W1, W2 / 1, 2, 3),
+  // and each working set is paired with the same position from last session.
+  const decoratedSets = useMemo(
+    () =>
+      log.sets.map((set, index) => {
+        // Position among sets of the same kind. Sets per exercise are single
+        // digits, so counting the preceding ones is cheaper than it looks.
+        const preceding = log.sets.slice(0, index);
+        if (set.is_warmup) {
+          const warmupNumber = preceding.filter((s) => s.is_warmup).length + 1;
+          return {
+            set,
+            label: `W${warmupNumber}`,
+            lastSet: null as LastSetPerformance | null,
+          };
+        }
+        const workingIndex = preceding.filter((s) => !s.is_warmup).length;
+        return {
+          set,
+          label: String(workingIndex + 1),
+          lastSet: getReferenceSet(lastPerformance, workingIndex),
+        };
+      }),
+    [log.sets, lastPerformance]
+  );
+
   return (
     <div className="rounded-lg border bg-card overflow-hidden">
       {/* Header */}
@@ -171,23 +237,41 @@ function ExerciseCard({
 
       {/* Column headers */}
       <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground border-b">
-        <div className="w-8 text-center">Set</div>
-        <div className="flex-1 text-center">Reps</div>
+        <div className="w-9 text-center">Set</div>
         <div className="flex-1 text-center">Weight</div>
+        <div className="flex-1 text-center">Reps</div>
         <div className="w-8"></div>
         <div className="w-8"></div>
       </div>
 
-      {/* Sets */}
+      {/* Sets. Warm-ups and working sets are numbered separately (W1, W2 /
+          1, 2, 3) so the first working set always reads "1" — previously
+          set_number counted warm-ups too, so it could start at 3. */}
       <div className="p-3 space-y-2">
-        {log.sets.map((set) => (
+        {decoratedSets.map(({ set, label, lastSet }) => (
           <SetRow
             key={set.id}
             set={set}
+            label={label}
+            lastSet={lastSet}
             onUpdate={(updates) => onUpdateSet(set.id, updates)}
             onDelete={() => onDeleteSet(set.id)}
           />
         ))}
+      </div>
+
+      {/* Legend — the amber/primary pill is otherwise unexplained, and a
+          title tooltip is invisible on touch. */}
+      <div className="flex items-center gap-3 px-3 pb-2 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded-sm bg-primary/20 border border-primary/30" />
+          Working
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded-sm bg-amber-500/20 border border-amber-500/30" />
+          Warm-up
+        </span>
+        <span className="ml-auto">Tap a set number to switch</span>
       </div>
 
       {/* Add Set Button */}
@@ -210,6 +294,14 @@ export function WorkoutTab() {
 
   const { logs, isLoading: isExerciseLoading, addLog, deleteLog, addSet, updateSet, deleteSet, refetch: refetchLogs } =
     useExerciseLogs(dateString);
+
+  // What was done last time for each exercise in today's session, shown as
+  // ghost text behind the inputs (double-tap a field to carry it forward).
+  const sessionExerciseIds = useMemo(
+    () => Array.from(new Set(logs.map((log) => log.exercise_id))),
+    [logs]
+  );
+  const { lastPerformance } = useLastExercisePerformance(sessionExerciseIds, dateString);
   const {
     sessions: cardioSessions,
     isLoading: isCardioLoading,
@@ -326,6 +418,7 @@ export function WorkoutTab() {
               renderExerciseCard={(log) => (
                 <ExerciseCard
                   log={log}
+                  lastPerformance={lastPerformance[log.exercise_id]}
                   onAddSet={() => addSet(log.id)}
                   onUpdateSet={updateSet}
                   onDeleteSet={(setId) => deleteSet(log.id, setId)}
