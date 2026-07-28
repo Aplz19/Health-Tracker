@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Plus, Minus, X, Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -50,6 +50,14 @@ export function CreatePresetDialog({
   );
   const [isFoodPickerOpen, setIsFoodPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // When the nested picker last closed, so the stray outside-interaction it
+  // leaves behind can't close this dialog (see onOpenChange below).
+  const pickerClosedAtRef = useRef(0);
+
+  const closeFoodPicker = useCallback((next: boolean) => {
+    if (!next) pickerClosedAtRef.current = Date.now();
+    setIsFoodPickerOpen(next);
+  }, []);
 
   const handleAddFood = (food: Food, servings: number) => {
     // Check if food already exists
@@ -66,7 +74,7 @@ export function CreatePresetDialog({
     } else {
       setItems((prev) => [...prev, { food, servings }]);
     }
-    setIsFoodPickerOpen(false);
+    closeFoodPicker(false);
   };
 
   const handleRemoveItem = (index: number) => {
@@ -117,8 +125,29 @@ export function CreatePresetDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent fullscreenOnMobile className="text-left">
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          // Never close the builder while the nested food picker is open (or
+          // was just open). Adding a food closes the picker, and that same tap
+          // then lands on this dialog, which Radix reads as "interact outside"
+          // — which used to dump the user back to the saved-meals list with
+          // their in-progress meal lost.
+          if (!next && (isFoodPickerOpen || Date.now() - pickerClosedAtRef.current < 400)) {
+            return;
+          }
+          onOpenChange(next);
+        }}
+      >
+        <DialogContent
+          fullscreenOnMobile
+          className="text-left"
+          // An in-progress meal shouldn't be dismissable by an accidental tap
+          // outside — that silently discards every food already added. The X
+          // and the save button are the ways out.
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           {/* Sticky header (pr-12 keeps the title clear of the close button) */}
           <DialogHeader className="flex-shrink-0 border-b px-4 py-3 pr-12 text-left sm:px-6">
             <DialogTitle>
@@ -275,7 +304,7 @@ export function CreatePresetDialog({
       {isFoodPickerOpen && (
         <FoodPickerDialog
           open
-          onOpenChange={setIsFoodPickerOpen}
+          onOpenChange={closeFoodPicker}
           mealTitle="Saved Meal"
           onSelectFood={handleAddFood}
           mode="food-only"
