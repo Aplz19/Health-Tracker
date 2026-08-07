@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Copy, AlertTriangle } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Plus, Copy, AlertTriangle, Pill } from "lucide-react";
 import { useDate } from "@/contexts/date-context";
 import { format, subDays } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -11,134 +11,144 @@ import { MealSection } from "@/components/meals/meal-section";
 import { NutritionSummary } from "@/components/dietary/nutrition-summary";
 import { useMeals } from "@/hooks/use-meals";
 import { useFoodLogs } from "@/hooks/use-food-logs";
-import { useSupplement, fetchYesterdayAmount } from "@/hooks/use-supplement";
-import { useSupplementPreferencesContext } from "@/contexts/supplement-preferences-context";
 import { useNutritionDayQuality } from "@/hooks/use-nutrition-day-quality";
-import type { UserSupplement } from "@/types/supplements";
+import {
+  useTrackedItems,
+  type TrackedItem,
+  type TrackedItemDayLog,
+} from "@/hooks/use-tracked-items";
+import { SUPPLEMENT_DEFINITIONS } from "@/lib/supplements/config";
 
-// Manual mode supplement row - number input
-function ManualSupplementRow({
-  supplement,
+// Icon/colour for an item. Migrated supplements keep the icon they always had
+// (matched via legacy_key); anything user-created falls back to a generic pill.
+function itemVisuals(item: TrackedItem) {
+  const def = item.legacy_key
+    ? SUPPLEMENT_DEFINITIONS.find((d) => d.key === item.legacy_key)
+    : undefined;
+  return { Icon: def?.icon ?? Pill, color: def?.color ?? "text-primary" };
+}
+
+// Manual row: type the amount taken.
+function ManualItemRow({
+  item,
   amount,
   onUpdate,
 }: {
-  supplement: UserSupplement;
+  item: TrackedItem;
   amount: number;
   onUpdate: (value: number) => void;
 }) {
   const [value, setValue] = useState(amount.toString());
+  const { Icon, color } = itemVisuals(item);
 
   const handleBlur = () => {
     const numValue = parseFloat(value) || 0;
-    if (numValue !== amount) {
-      onUpdate(numValue);
-    }
+    if (numValue !== amount) onUpdate(numValue);
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.currentTarget.blur();
-    }
-  };
-
-  const Icon = supplement.definition.icon;
 
   return (
     <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-2">
-      <div className="flex items-center gap-2">
-        <Icon className={`h-4 w-4 ${supplement.definition.color}`} />
-        <span className="font-medium text-sm">{supplement.definition.label}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon className={"h-4 w-4 shrink-0 " + color} />
+        <span className="truncate text-sm font-medium">{item.name}</span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <Input
           type="number"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          className="w-20 h-7 text-center text-sm"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          className="h-7 w-20 text-center text-sm"
           min={0}
-          step={supplement.definition.step}
         />
-        <span className="text-xs text-muted-foreground w-8">
-          {supplement.definition.unit}
-        </span>
+        <span className="w-8 text-xs text-muted-foreground">{item.unit}</span>
       </div>
     </div>
   );
 }
 
-// Goal mode supplement row - checkbox
-function GoalSupplementRow({
-  supplement,
-  amount,
-  onToggle,
+// Checkbox row. One checkbox per scheduled dose, so a twice-daily medication
+// can record "took the morning, missed the evening".
+//
+// Taken-ness is decided by what was logged that day, NEVER by comparing against
+// the item's current goal — raising a goal from 5000 to 10000 used to make
+// every past day logged at 5000 render as skipped.
+function DoseItemRow({
+  item,
+  log,
+  onSetDoses,
 }: {
-  supplement: UserSupplement;
-  amount: number;
-  onToggle: (checked: boolean) => void;
+  item: TrackedItem;
+  log: TrackedItemDayLog | undefined;
+  onSetDoses: (doses: number) => void;
 }) {
-  const isChecked = amount >= supplement.goalAmount;
-  const Icon = supplement.definition.icon;
+  const { Icon, color } = itemVisuals(item);
+  const scheduled = Math.max(1, item.doses_per_day);
+  const taken = log ? log.doses_taken || (log.amount > 0 ? 1 : 0) : 0;
+  const perDose = item.dose_amount ?? item.goal_amount ?? 0;
 
   return (
-    <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-2">
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id={`goal-${supplement.definition.key}`}
-          checked={isChecked}
-          onCheckedChange={(checked) => onToggle(checked === true)}
-        />
-        <label
-          htmlFor={`goal-${supplement.definition.key}`}
-          className="flex items-center gap-2 cursor-pointer"
-        >
-          <Icon className={`h-4 w-4 ${supplement.definition.color}`} />
-          <span className="font-medium text-sm">{supplement.definition.label}</span>
-        </label>
+    <div className="flex items-center justify-between gap-2 rounded-lg border bg-card px-4 py-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <Icon className={"h-4 w-4 shrink-0 " + color} />
+        <div className="min-w-0">
+          <span className="block truncate text-sm font-medium">{item.name}</span>
+          {perDose > 0 && (
+            <span className="block text-xs text-muted-foreground">
+              {perDose} {item.unit}
+              {scheduled > 1 ? " × " + scheduled + "/day" : ""}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-1">
-        <span className={`text-sm ${isChecked ? "text-green-500" : "text-muted-foreground"}`}>
-          {amount}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          / {supplement.goalAmount} {supplement.definition.unit}
-        </span>
+
+      <div className="flex shrink-0 items-center gap-2">
+        {taken > 0 && (
+          <span className="text-xs text-green-500">
+            {scheduled > 1 ? taken + "/" + scheduled : "taken"}
+          </span>
+        )}
+        <div className="flex items-center gap-1">
+          {Array.from({ length: scheduled }).map((_, i) => (
+            <Checkbox
+              key={i}
+              checked={i < taken}
+              aria-label={item.name + " dose " + (i + 1) + " of " + scheduled}
+              // Ticking dose 3 means 3 taken; unticking dose 3 means 2.
+              onCheckedChange={(checked) => onSetDoses(checked === true ? i + 1 : i)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-// Wrapper component that handles both modes
-function SupplementRowWrapper({
-  supplement,
-  supplementHook,
+function TrackedItemRow({
+  item,
+  log,
+  onSetDoses,
+  onSetAmount,
 }: {
-  supplement: UserSupplement;
-  supplementHook: ReturnType<typeof useSupplement>;
+  item: TrackedItem;
+  log: TrackedItemDayLog | undefined;
+  onSetDoses: (doses: number) => void;
+  onSetAmount: (amount: number) => void;
 }) {
-  const handleGoalToggle = (checked: boolean) => {
-    supplementHook.updateAmount(checked ? supplement.goalAmount : 0);
-  };
-
-  if (supplement.trackingMode === "goal") {
+  if (item.kind === "supplement" && item.tracking_mode === "manual") {
     return (
-      <GoalSupplementRow
-        supplement={supplement}
-        amount={supplementHook.amount}
-        onToggle={handleGoalToggle}
+      <ManualItemRow
+        key={item.id + ":" + (log?.amount ?? 0)}
+        item={item}
+        amount={log?.amount ?? 0}
+        onUpdate={onSetAmount}
       />
     );
   }
-
-  return (
-    <ManualSupplementRow
-      key={`${supplement.definition.key}:${supplementHook.amount}`}
-      supplement={supplement}
-      amount={supplementHook.amount}
-      onUpdate={supplementHook.updateAmount}
-    />
-  );
+  return <DoseItemRow item={item} log={log} onSetDoses={onSetDoses} />;
 }
 
 export function DietaryTab() {
@@ -162,50 +172,28 @@ export function DietaryTab() {
     getLogsByMealId,
   } = useFoodLogs(dateString);
 
-  // Get enabled supplements from preferences
-  const { getEnabledSupplements, isLoading: isPrefsLoading } = useSupplementPreferencesContext();
-  const enabledSupplements = getEnabledSupplements();
+  // Supplements and medications now come from one generic table (see
+  // NOTES_supplements_medications_migration.md). This single hook replaces the
+  // ~15 useSupplement calls that used to sit here, one per hardcoded table.
+  const {
+    supplements: supplementItems,
+    medications: medicationItems,
+    logs: itemLogs,
+    available: itemsAvailable,
+    isLoading: isItemsLoading,
+    setDosesTaken,
+    setDayLog,
+    fillFromDate,
+  } = useTrackedItems(dateString);
 
-  // Create hooks for all possible supplements (needed for consistent hook calls).
-  // Each hook is gated by whether the user actually tracks that supplement, so
-  // disabled supplements make zero network calls (was ~15 queries every load).
-  const enabledKeys = new Set(enabledSupplements.map((s) => s.definition.key));
-
-  // Original supplements
-  const creatine = useSupplement("creatine_logs", dateString, enabledKeys.has("creatine"));
-  const d3 = useSupplement("d3_logs", dateString, enabledKeys.has("d3"));
-  const k2 = useSupplement("k2_logs", dateString, enabledKeys.has("k2"));
-  const vitaminC = useSupplement("vitamin_c_logs", dateString, enabledKeys.has("vitaminC"));
-  const zinc = useSupplement("zinc_logs", dateString, enabledKeys.has("zinc"));
-  const magnesium = useSupplement("magnesium_logs", dateString, enabledKeys.has("magnesium"));
-  const melatonin = useSupplement("melatonin_logs", dateString, enabledKeys.has("melatonin"));
-  const caffeine = useSupplement("caffeine_logs", dateString, enabledKeys.has("caffeine"));
-  // New supplements
-  const fishOil = useSupplement("fish_oil_logs", dateString, enabledKeys.has("fishOil"));
-  const vitaminA = useSupplement("vitamin_a_logs", dateString, enabledKeys.has("vitaminA"));
-  const vitaminE = useSupplement("vitamin_e_logs", dateString, enabledKeys.has("vitaminE"));
-  const vitaminB12 = useSupplement("vitamin_b12_logs", dateString, enabledKeys.has("vitaminB12"));
-  const vitaminBComplex = useSupplement("vitamin_b_complex_logs", dateString, enabledKeys.has("vitaminBComplex"));
-  const folate = useSupplement("folate_logs", dateString, enabledKeys.has("folate"));
-  const biotin = useSupplement("biotin_logs", dateString, enabledKeys.has("biotin"));
-
-  const supplementHooks: Record<string, ReturnType<typeof useSupplement>> = {
-    creatine,
-    d3,
-    k2,
-    vitaminC,
-    zinc,
-    magnesium,
-    melatonin,
-    caffeine,
-    fishOil,
-    vitaminA,
-    vitaminE,
-    vitaminB12,
-    vitaminBComplex,
-    folate,
-    biotin,
-  };
+  const enabledSupplements = useMemo(
+    () => supplementItems.filter((i) => i.is_enabled),
+    [supplementItems]
+  );
+  const enabledMedications = useMemo(
+    () => medicationItems.filter((i) => i.is_enabled),
+    [medicationItems]
+  );
 
   // Per-day nutrition data-quality flag (bottom of this tab).
   const dayQuality = useNutritionDayQuality(dateString);
@@ -218,20 +206,7 @@ export function DietaryTab() {
       // selectedDate is already local time. Parsing its YYYY-MM-DD string with
       // new Date() treats it as UTC and can skip an extra day in US time zones.
       const yesterday = format(subDays(selectedDate, 1), "yyyy-MM-dd");
-
-      // Only fill enabled supplements
-      await Promise.all(
-        enabledSupplements.map(async (supplement) => {
-          const hook = supplementHooks[supplement.definition.key];
-          if (hook) {
-            const yesterdayAmount = await fetchYesterdayAmount(
-              supplement.definition.table,
-              yesterday
-            );
-            await hook.updateAmount(yesterdayAmount);
-          }
-        })
-      );
+      await fillFromDate(yesterday, enabledSupplements);
     } catch (err) {
       console.error("Failed to fill from yesterday:", err);
     } finally {
@@ -240,6 +215,23 @@ export function DietaryTab() {
   };
 
   const isLoading = isMealsLoading || isLogsLoading;
+
+  const renderItems = (items: TrackedItem[]) =>
+    items.map((item) => (
+      <TrackedItemRow
+        key={item.id}
+        item={item}
+        log={itemLogs[item.id]}
+        onSetDoses={(doses) => {
+          setDosesTaken(item, doses).catch(() => {
+            // Hook rolls the checkbox back on failure.
+          });
+        }}
+        onSetAmount={(amount) => {
+          setDayLog(item.id, amount, amount > 0 ? 1 : 0).catch(() => {});
+        }}
+      />
+    ));
 
   return (
     <div className="space-y-4 p-4">
@@ -291,20 +283,29 @@ export function DietaryTab() {
 
       {/* Add Meal Button (when meals exist) */}
       {meals.length > 0 && (
-        <Button
-          onClick={addMeal}
-          variant="outline"
-          className="w-full"
-        >
+        <Button onClick={addMeal} variant="outline" className="w-full">
           <Plus className="h-4 w-4 mr-2" />
           Add Meal
         </Button>
       )}
 
+      {/* Medications — only rendered when you actually take some, so the
+          section stays out of the way otherwise. */}
+      {itemsAvailable && enabledMedications.length > 0 && (
+        <div className="space-y-2">
+          <span className="text-sm font-medium text-muted-foreground">
+            Medications
+          </span>
+          {renderItems(enabledMedications)}
+        </div>
+      )}
+
       {/* Daily Supplements Section */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-muted-foreground">Daily Supplements</span>
+          <span className="text-sm font-medium text-muted-foreground">
+            Daily Supplements
+          </span>
           {enabledSupplements.length > 0 && (
             <Button
               variant="outline"
@@ -319,9 +320,11 @@ export function DietaryTab() {
           )}
         </div>
 
-        {isPrefsLoading ? (
+        {isItemsLoading ? (
           <div className="rounded-lg border bg-card px-4 py-3 text-center">
-            <span className="text-sm text-muted-foreground">Loading supplements...</span>
+            <span className="text-sm text-muted-foreground">
+              Loading supplements...
+            </span>
           </div>
         ) : enabledSupplements.length === 0 ? (
           <div className="rounded-lg border-2 border-dashed p-4 text-center">
@@ -330,17 +333,7 @@ export function DietaryTab() {
             </p>
           </div>
         ) : (
-          enabledSupplements.map((supplement) => {
-            const hook = supplementHooks[supplement.definition.key];
-            if (!hook) return null;
-            return (
-              <SupplementRowWrapper
-                key={supplement.definition.key}
-                supplement={supplement}
-                supplementHook={hook}
-              />
-            );
-          })
+          renderItems(enabledSupplements)
         )}
       </div>
 
@@ -366,9 +359,11 @@ export function DietaryTab() {
               checked={dayQuality.isIncomplete}
               disabled={dayQuality.isSaving}
               onCheckedChange={(checked) => {
-                dayQuality.setQuality(checked === true ? "incomplete" : null).catch(() => {
-                  // Hook rolls the checkbox back on failure.
-                });
+                dayQuality
+                  .setQuality(checked === true ? "incomplete" : null)
+                  .catch(() => {
+                    // Hook rolls the checkbox back on failure.
+                  });
               }}
             />
           </div>

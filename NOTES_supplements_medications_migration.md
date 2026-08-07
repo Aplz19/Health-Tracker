@@ -104,4 +104,44 @@ Drop the legacy tables — and not immediately; there is no cost to keeping them
 
 ## Status
 
-- 2026-08-06 — plan written. Implementation follows below.
+- **2026-08-06 — plan written.**
+- **2026-08-06 — migration run and verified.** All 9 supplements with data came
+  across with identical row counts and date ranges (173 rows total); the 6 never
+  logged are empty on both sides. D3's dose history survived intact — 5000 for
+  23 days (Jan 18 – Jun 28), 10000 for 13 days (Jun 30 – Aug 4).
+  - Note for future migrations: the verification inside `add_tracked_items.sql`
+    used `RAISE NOTICE`, which the Supabase SQL editor doesn't display, and the
+    editor only shows a grid for the last statement — so a successful run looked
+    like silence. `sql/verify_tracked_items.sql` was added to return real rows.
+    **Verification queries must return result sets, not notices.**
+- **2026-08-06 — implementation complete.**
+  - `use-tracked-items` replaces the ~15 `useSupplement` calls in the dietary
+    tab with one hook over `user_tracked_items` / `tracked_item_logs`.
+  - Dietary tab renders supplements from items and adds a **Medications**
+    section (hidden unless you take some). N checkboxes per `doses_per_day`.
+  - The `amount >= goalAmount` display bug is gone: a day counts as taken from
+    what was logged that day, so the 23 days at 5000 IU no longer render as
+    skipped after the goal moved to 10000.
+  - Settings: `TrackedItemsSettings` replaces `SupplementsSettings` — manages
+    both kinds, creates custom items, enable/disable, and states plainly that
+    disabling preserves history.
+  - `daily-summary/aggregate` reads the new tables and emits a new `tracked[]`
+    array covering every item **including medications**, while still populating
+    the legacy fixed-key `supplements` block so the ~380 pre-migration summaries
+    stay comparable.
+  - `use-analytics` reads supplement series from the new tables (one query
+    instead of one per legacy table), keyed by `legacy_key` so existing metric
+    preferences keep working, falling back to name for custom items.
+
+### Known regression
+Drag-to-reorder was dropped from the settings UI. `sort_order` is preserved from
+the migration, so existing ordering is intact and new items land at the end.
+Worth restoring if the ordering starts to matter.
+
+### Still to do
+- The 15 legacy `*_logs` tables and `user_supplement_preferences` are still in
+  place and are now **frozen** — nothing writes to them any more. Leave them
+  until the new path has been used for a while, then drop.
+- `use-supplement.ts`, `use-supplement-preferences.ts`, the supplement
+  preferences context and `supplements-settings.tsx` are now unused. Removed
+  only after the legacy tables go.

@@ -43,6 +43,21 @@ export interface MealSummary {
   };
 }
 
+/**
+ * One tracked item taken on a day — supplement or medication, in its own unit.
+ * This is the complete picture; `SupplementsSummary` below is the legacy
+ * fixed-key subset, kept so pre-migration summaries stay comparable.
+ */
+export interface TrackedItemSummaryEntry {
+  name: string;
+  kind: "supplement" | "medication";
+  unit: string;
+  /** Amount actually taken that day. Never recomputed from current settings. */
+  amount: number;
+  doses_taken: number;
+  doses_per_day: number;
+}
+
 export interface SupplementsSummary {
   creatine: number;
   d3: number;
@@ -120,6 +135,11 @@ export interface DailySummaryData {
   totals: DailySummaryTotals;
   meals: MealSummary[];
   supplements: SupplementsSummary;
+  /**
+   * Every supplement and medication logged that day, including custom ones.
+   * Absent on summaries generated before the tracked-items migration.
+   */
+  tracked?: TrackedItemSummaryEntry[];
   workout: WorkoutSummary;
   whoop: WhoopSummary | null;
   // Optional: absent on summaries generated before habits v2.

@@ -315,30 +315,37 @@ export function useAnalytics(
       // Supplements: one query per requested supplement table, in parallel.
       // Only the supplements whose analytics metric is enabled are fetched, so
       // this stays cheap (and is skipped entirely when none are enabled).
+      // One query across every tracked item (supplements and medications),
+      // replacing one query per legacy *_logs table. Grouped by the item's
+      // legacy_key where it has one, so existing metric keys keep working,
+      // and by name for user-created items.
       const supplements: Record<string, DailySupplementAmount[]> = {};
       if (supplementKeys.length > 0) {
-        const results = await Promise.all(
-          supplementKeys.map(async (key) => {
-            const table = SUPPLEMENT_METRIC_TABLES[key];
-            if (!table) return { key, rows: [] as DailySupplementAmount[] };
-            const { data } = await supabase
-              .from(table)
-              .select("date, amount")
-              .gte("date", startDate)
-              .lte("date", endDate)
-              .order("date", { ascending: true });
-            return {
-              key,
-              rows:
-                (data as AnalyticsCreatineLog[] | null)?.map((d) => ({
-                  date: d.date,
-                  amount: d.amount,
-                })) ?? [],
-            };
-          })
-        );
-        results.forEach(({ key, rows }) => {
-          supplements[key] = rows;
+        const { data } = await supabase
+          .from("tracked_item_logs")
+          .select("date, amount, item:user_tracked_items ( name, legacy_key )")
+          .gte("date", startDate)
+          .lte("date", endDate)
+          .order("date", { ascending: true });
+
+        type ItemJoin = { name: string; legacy_key: string | null };
+        const wanted = new Set(supplementKeys);
+        (data as unknown as Array<{
+          date: string;
+          amount: number;
+          item: ItemJoin | ItemJoin[] | null;
+        }> | null)?.forEach((row) => {
+          // PostgREST types a to-one embed as an array.
+          const item = Array.isArray(row.item) ? row.item[0] ?? null : row.item;
+          if (!item) return;
+          const key = item.legacy_key ?? item.name;
+          if (!wanted.has(key)) return;
+          (supplements[key] ??= []).push({ date: row.date, amount: row.amount });
+        });
+
+        // Guarantee a (possibly empty) series for everything requested.
+        supplementKeys.forEach((key) => {
+          supplements[key] ??= [];
         });
       }
 

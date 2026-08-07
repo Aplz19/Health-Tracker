@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HabitsSettings } from "./habits-settings";
-import { SupplementsSettings } from "./supplements-settings";
+import { TrackedItemsSettings } from "./tracked-items-settings";
 import { WhoopSettings } from "./whoop-settings";
 import { AnalyticsSettings } from "./analytics-settings";
 
@@ -40,7 +40,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             </TabsTrigger>
             <TabsTrigger value="supplements" className="flex items-center gap-1 text-sm py-3">
               <Pill className="h-4 w-4" />
-              <span>Supps</span>
+              <span>Meds</span>
             </TabsTrigger>
             <TabsTrigger value="whoop" className="flex items-center gap-1 text-sm py-3">
               <Activity className="h-4 w-4" />
@@ -55,7 +55,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
               <AnalyticsSettings />
             </TabsContent>
             <TabsContent value="supplements" className="m-0">
-              <SupplementsSettings />
+              <TrackedItemsSettings />
             </TabsContent>
             <TabsContent value="whoop" className="m-0">
               <WhoopSettings />

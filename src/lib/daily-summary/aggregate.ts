@@ -13,6 +13,7 @@ import type {
   MealSummary,
   MealFoodItem,
   SupplementsSummary,
+  TrackedItemSummaryEntry,
   WorkoutSummary,
   ExerciseSummary,
   TreadmillSummary,
@@ -38,28 +39,22 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
   const [
     mealsResult,
     foodLogsResult,
-    creatineResult,
-    d3Result,
-    k2Result,
-    vitaminCResult,
-    zincResult,
-    magnesiumResult,
-    melatoninResult,
-    caffeineResult,
+    trackedResult,
     exerciseLogsResult,
     treadmillResult,
     whoopResult,
   ] = await Promise.all([
     supabase.from("meals").select("*").eq("date", date).eq("user_id", userId).order("time_hour").order("time_minute"),
     supabase.from("food_logs").select("*").eq("date", date).eq("user_id", userId),
-    supabase.from("creatine_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
-    supabase.from("d3_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
-    supabase.from("k2_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
-    supabase.from("vitamin_c_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
-    supabase.from("zinc_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
-    supabase.from("magnesium_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
-    supabase.from("melatonin_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
-    supabase.from("caffeine_logs").select("amount").eq("date", date).eq("user_id", userId).single(),
+    // Supplements AND medications, from the generic tracked-item tables that
+    // replaced the 15 one-table-per-supplement designs.
+    supabase
+      .from("tracked_item_logs")
+      .select(
+        "amount, doses_taken, item:user_tracked_items ( name, kind, unit, doses_per_day, legacy_key )"
+      )
+      .eq("date", date)
+      .eq("user_id", userId),
     supabase.from("exercise_logs").select("*").eq("date", date).eq("user_id", userId),
     supabase.from("treadmill_sessions").select("*").eq("date", date).eq("user_id", userId),
     supabase.from("whoop_data").select("*").eq("date", date).eq("user_id", userId).single(),
@@ -180,16 +175,54 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
     } as DailySummaryTotals
   );
 
-  // Build supplements summary
+  // Everything taken today, supplements and medications alike.
+  type TrackedItemJoin = {
+    name: string;
+    kind: "supplement" | "medication";
+    unit: string;
+    doses_per_day: number;
+    legacy_key: string | null;
+  };
+
+  // PostgREST types a to-one embed as an array; normalize to a single object.
+  const trackedRows = (
+    (trackedResult.data ?? []) as unknown as Array<{
+      amount: number;
+      doses_taken: number;
+      item: TrackedItemJoin | TrackedItemJoin[] | null;
+    }>
+  ).map((row) => ({
+    amount: row.amount,
+    doses_taken: row.doses_taken,
+    item: (Array.isArray(row.item) ? row.item[0] ?? null : row.item),
+  }));
+
+  const tracked: TrackedItemSummaryEntry[] = trackedRows
+    .filter((row) => row.item !== null)
+    .map((row) => ({
+      name: row.item!.name,
+      kind: row.item!.kind,
+      unit: row.item!.unit,
+      amount: row.amount,
+      doses_taken: row.doses_taken,
+      doses_per_day: row.item!.doses_per_day,
+    }));
+
+  // Legacy fixed-key supplement block, kept populated so the ~380 summaries
+  // written before the migration stay comparable with new ones. `tracked`
+  // above is the complete picture (custom supplements + medications).
+  const amountFor = (legacyKey: string) =>
+    trackedRows.find((row) => row.item?.legacy_key === legacyKey)?.amount || 0;
+
   const supplements: SupplementsSummary = {
-    creatine: creatineResult.data?.amount || 0,
-    d3: d3Result.data?.amount || 0,
-    k2: k2Result.data?.amount || 0,
-    vitamin_c: vitaminCResult.data?.amount || 0,
-    zinc: zincResult.data?.amount || 0,
-    magnesium: magnesiumResult.data?.amount || 0,
-    melatonin: melatoninResult.data?.amount || 0,
-    caffeine: caffeineResult.data?.amount || 0,
+    creatine: amountFor("creatine"),
+    d3: amountFor("d3"),
+    k2: amountFor("k2"),
+    vitamin_c: amountFor("vitaminC"),
+    zinc: amountFor("zinc"),
+    magnesium: amountFor("magnesium"),
+    melatonin: amountFor("melatonin"),
+    caffeine: amountFor("caffeine"),
   };
 
   // Build exercise summaries
@@ -323,6 +356,7 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
     totals,
     meals: mealSummaries,
     supplements,
+    tracked,
     workout,
     whoop,
     habits,
