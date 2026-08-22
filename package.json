@@ -13,7 +13,8 @@
     "generate-icons": "node scripts/generate-icons.js",
     "generate-embeddings": "tsx scripts/generate-food-embeddings.ts",
     "validate-restaurant-import": "tsx scripts/validate-restaurant-import.ts",
-    "import-restaurant-foods": "tsx scripts/import-restaurant-foods.ts"
+    "import-restaurant-foods": "tsx scripts/import-restaurant-foods.ts",
+    "backfill-summaries": "tsx scripts/backfill-daily-summaries.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
