@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 // Paths that don't require authentication
-const publicPaths = ["/login", "/signup", "/api/auth", "/api/cron"];
+// /api/whoop/webhook is public because WHOOP posts to it with no app session;
+// it authenticates every request itself by HMAC signature instead.
+const publicPaths = ["/login", "/signup", "/api/auth", "/api/cron", "/api/whoop/webhook"];
 // This exact machine-to-machine endpoint performs its own timing-safe bearer
 // authentication. Do not make the broader /api/admin namespace public.
 const bearerProtectedPaths = new Set([

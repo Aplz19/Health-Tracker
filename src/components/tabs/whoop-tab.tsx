@@ -10,6 +10,7 @@ import { RecoveryCard } from "@/components/whoop/recovery-card";
 import { SleepCard } from "@/components/whoop/sleep-card";
 import { StrainCard } from "@/components/whoop/strain-card";
 import { Loader2 } from "lucide-react";
+import { sleepDetailFromRaw } from "@/lib/whoop/raw";
 
 export function WhoopTab() {
   const { selectedDate } = useDate();
@@ -100,19 +101,30 @@ export function WhoopTab() {
             skinTemp={data?.skin_temp_celsius ?? null}
           />
 
-          <SleepCard
-            sleepScore={data?.sleep_score ?? null}
-            sleepDurationMinutes={data?.sleep_duration_minutes ?? null}
-            sleepConsistency={(data?.raw_data as { sleep?: { score?: { sleep_consistency_percentage?: number } } })?.sleep?.score?.sleep_consistency_percentage ?? null}
-            sleepEfficiency={(data?.raw_data as { sleep?: { score?: { sleep_efficiency_percentage?: number } } })?.sleep?.score?.sleep_efficiency_percentage ?? null}
-            sleepNeededMinutes={(() => {
-              const sleepNeeded = (data?.raw_data as { sleep?: { score?: { sleep_needed?: { baseline_milli?: number; need_from_sleep_debt_milli?: number; need_from_recent_strain_milli?: number } } } })?.sleep?.score?.sleep_needed;
-              if (!sleepNeeded) return null;
-              const totalNeededMs = (sleepNeeded.baseline_milli || 0) + (sleepNeeded.need_from_sleep_debt_milli || 0) + (sleepNeeded.need_from_recent_strain_milli || 0);
-              return Math.round(totalNeededMs / 60000);
-            })()}
-            respiratoryRate={(data?.raw_data as { sleep?: { score?: { respiratory_rate?: number } } })?.sleep?.score?.respiratory_rate ?? null}
-          />
+          {(() => {
+            // One typed read of raw_data, shared with the daily-summary
+            // aggregation via src/lib/whoop/raw.ts, replacing four ad-hoc
+            // inline casts that could drift from it.
+            const sleep = sleepDetailFromRaw(data?.raw_data);
+            // Sleep need excludes the nap component, matching what this card
+            // has always displayed.
+            const neededMinutes =
+              sleep.sleep_needed_baseline_minutes === null
+                ? null
+                : (sleep.sleep_needed_baseline_minutes ?? 0) +
+                  (sleep.sleep_needed_from_debt_minutes ?? 0) +
+                  (sleep.sleep_needed_from_strain_minutes ?? 0);
+            return (
+              <SleepCard
+                sleepScore={data?.sleep_score ?? null}
+                sleepDurationMinutes={data?.sleep_duration_minutes ?? null}
+                sleepConsistency={sleep.sleep_consistency_percentage}
+                sleepEfficiency={sleep.sleep_efficiency_percentage}
+                sleepNeededMinutes={neededMinutes}
+                respiratoryRate={sleep.respiratory_rate}
+              />
+            );
+          })()}
 
           <StrainCard
             strainScore={data?.strain_score ?? null}

@@ -1,4 +1,5 @@
 import { getServerSupabase } from "@/lib/supabase/server";
+import { sleepDetailFromRaw, userCalibratingFromRaw } from "@/lib/whoop/raw";
 import {
   enabledSorted,
   interpretLog,
@@ -284,6 +285,10 @@ export async function aggregateDailyData(date: string, userId: string): Promise<
         kilojoules: whoopResult.data.kilojoules,
         avg_heart_rate: whoopResult.data.avg_heart_rate,
         max_heart_rate: whoopResult.data.max_heart_rate,
+        // Already archived in raw_data by the sync; promoted here so analysis
+        // reading daily_summaries can finally see it.
+        ...sleepDetailFromRaw(whoopResult.data.raw_data),
+        user_calibrating: userCalibratingFromRaw(whoopResult.data.raw_data),
       }
     : null;
 

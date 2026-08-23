@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { DEFAULT_SYNC_LOOKBACK_DAYS, syncWhoopRange } from "@/lib/whoop/sync";
+import { syncBodyMeasurement } from "@/lib/whoop/body";
 import { addDays, localDateString } from "@/lib/daily-summary/date";
 
 // Called by Vercel Cron daily -- see vercel.json.
 // Runs BEFORE the daily summary so a day's strain is final before aggregation.
+//
+// Since webhooks landed (src/app/api/whoop/webhook/route.ts) this is no longer
+// the primary path for sleep/recovery/workouts -- those arrive within seconds
+// of being scored. It stays for two reasons:
+//   1. STRAIN. There is no cycle webhook, so the only way to learn a day's
+//      final strain is to ask.
+//   2. RECONCILE. Webhooks get missed -- a deploy window, a delivery failure,
+//      a 500 from us. One daily pass over a trailing window repairs anything
+//      dropped, for about four API calls out of a 10,000/day budget.
 export const maxDuration = 60;
 export async function GET(request: NextRequest) {
   // Verify the request is from Vercel Cron
@@ -53,13 +63,24 @@ export async function GET(request: NextRequest) {
       success: boolean;
       days?: number;
       withRecovery?: number;
+      body?: string;
       error?: string;
     }[] = [];
 
     for (const userId of userIds) {
       try {
         const r = await syncWhoopRange(supabase, userId, startStr, today);
-        results.push({ userId, success: true, days: r.days, withRecovery: r.withRecovery });
+        // WHOOP exposes only a current snapshot of body weight, so sampling it
+        // once a day is how a series gets built. Never fatal: a token issued
+        // before read:body_measurement simply reports skipped.
+        const body = await syncBodyMeasurement(supabase, userId);
+        results.push({
+          userId,
+          success: true,
+          days: r.days,
+          withRecovery: r.withRecovery,
+          body: body.status === "stored" ? `${body.weightLb} lb` : `skipped: ${body.reason}`,
+        });
       } catch (err) {
         results.push({
           userId,

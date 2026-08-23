@@ -227,3 +227,22 @@ export interface WhoopDayData {
   created_at: string;
   updated_at: string;
 }
+
+// GET /v2/user/profile/basic  (scope: read:profile)
+export interface WhoopProfile {
+  user_id: number;
+  email: string;
+  first_name: string;
+  last_name: string;
+}
+
+// GET /v2/user/measurement/body  (scope: read:body_measurement)
+// A single CURRENT snapshot -- not a time series and it carries no timestamp,
+// so a series has to be built by sampling it and stamping the fetch time.
+// WHOOP imports weight from Apple Health, which is how scale readings reach it.
+// Note WHOOP exposes no body-fat or lean-mass field; only these three.
+export interface WhoopBodyMeasurement {
+  height_meter: number;
+  weight_kilogram: number;
+  max_heart_rate: number;
+}

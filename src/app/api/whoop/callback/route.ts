@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { storeTokens } from "@/lib/whoop/client";
+import { fetchProfile, storeTokens } from "@/lib/whoop/client";
 import type { WhoopTokenResponse } from "@/lib/whoop/types";
 
 // Get the base URL for redirects
@@ -87,11 +87,22 @@ export async function GET(request: NextRequest) {
     console.log("[Whoop Callback] Token exchange successful, storing tokens...");
 
     // Store tokens in database for this user
+    // Learn the WHOOP-side numeric user id and persist it: webhooks identify
+    // the member ONLY by that id, so without it an inbound event cannot be
+    // mapped back to an app user. Failure here must not break connecting.
+    let whoopUserId: number | undefined;
+    try {
+      whoopUserId = (await fetchProfile(tokens.access_token)).user_id;
+    } catch (err) {
+      console.warn("[Whoop Callback] Could not fetch profile for whoop_user_id:", err);
+    }
+
     await storeTokens(
       userId,
       tokens.access_token,
       tokens.refresh_token,
-      tokens.expires_in
+      tokens.expires_in,
+      whoopUserId
     );
 
     console.log("[Whoop Callback] Tokens stored, redirecting to app");

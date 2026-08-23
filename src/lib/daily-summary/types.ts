@@ -115,6 +115,31 @@ export interface WhoopSummary {
   kilojoules: number | null;
   avg_heart_rate: number | null;
   max_heart_rate: number | null;
+
+  // Sub-metrics promoted out of `whoop_data.raw_data`, where the sync has been
+  // archiving them all along. They were reachable from the UI but invisible to
+  // anything reading daily_summaries -- i.e. to all analysis. Durations are
+  // minutes, matching sleep_duration_minutes. See src/lib/whoop/raw.ts.
+  sleep_light_minutes: number | null;
+  sleep_deep_minutes: number | null;
+  sleep_rem_minutes: number | null;
+  sleep_awake_minutes: number | null;
+  sleep_in_bed_minutes: number | null;
+  sleep_no_data_minutes: number | null;
+  sleep_cycle_count: number | null;
+  sleep_disturbance_count: number | null;
+  sleep_efficiency_percentage: number | null;
+  sleep_consistency_percentage: number | null;
+  respiratory_rate: number | null;
+  sleep_needed_baseline_minutes: number | null;
+  sleep_needed_from_debt_minutes: number | null;
+  sleep_needed_from_strain_minutes: number | null;
+  sleep_needed_from_nap_minutes: number | null;
+  /** Sleep onset/offset -- the missing input for meal-to-sleep analysis. */
+  sleep_start: string | null;
+  sleep_end: string | null;
+  is_nap: boolean | null;
+  user_calibrating: boolean | null;
 }
 
 // Habits v2. One entry per ENABLED habit; `value` is null when nothing was

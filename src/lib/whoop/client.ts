@@ -7,6 +7,8 @@ import type {
   WhoopSleep,
   WhoopWorkout,
   WhoopPaginatedResponse,
+  WhoopProfile,
+  WhoopBodyMeasurement,
 } from "./types";
 
 const WHOOP_API_BASE = "https://api.prod.whoop.com";
@@ -247,5 +249,22 @@ export async function fetchWorkouts(
     accessToken,
     startDate,
     endDate
+  );
+}
+
+// Fetch the WHOOP profile (v2). Used to learn the WHOOP-side numeric user id,
+// which is the only identifier webhooks carry.
+export async function fetchProfile(accessToken: string): Promise<WhoopProfile> {
+  return whoopFetch<WhoopProfile>("/developer/v2/user/profile/basic", accessToken);
+}
+
+// Fetch current body measurements (v2). Requires the read:body_measurement
+// scope -- a token without it gets 401 even though other calls succeed.
+export async function fetchBodyMeasurement(
+  accessToken: string
+): Promise<WhoopBodyMeasurement> {
+  return whoopFetch<WhoopBodyMeasurement>(
+    "/developer/v2/user/measurement/body",
+    accessToken
   );
 }

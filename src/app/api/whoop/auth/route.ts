@@ -38,7 +38,11 @@ export async function GET(request: NextRequest) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "read:recovery read:cycles read:sleep read:workout read:profile offline",
+    // read:body_measurement lets us read weight, which reaches WHOOP from the
+    // scale via Apple Health. Adding a scope does not upgrade an existing
+    // token -- WHOOP must be disconnected and reconnected once.
+    scope:
+      "read:recovery read:cycles read:sleep read:workout read:profile read:body_measurement offline",
     state: state,
   });
 
