@@ -4,6 +4,8 @@ import { DEFAULT_SYNC_LOOKBACK_DAYS, syncWhoopRange } from "@/lib/whoop/sync";
 import { addDays, localDateString } from "@/lib/daily-summary/date";
 
 // Called by Vercel Cron daily -- see vercel.json.
+// Runs BEFORE the daily summary so a day's strain is final before aggregation.
+export const maxDuration = 60;
 export async function GET(request: NextRequest) {
   // Verify the request is from Vercel Cron
   const authHeader = request.headers.get("authorization");
