@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getCached, hasCached, setCached } from "@/lib/client-cache";
 import { getAnalyticsWindow, type TimeRange } from "@/hooks/use-analytics";
-import { interpretLog } from "@/lib/habits/logic";
+import { isBooleanChoice, isHabitOccurrence } from "@/lib/habits/logic";
 import type { HabitLog, ResolvedHabit } from "@/types/habits";
 
 /**
@@ -26,11 +26,18 @@ export interface HabitDashboardEntry {
   builtinKey: string | null;
   unit: string;
   /**
-   * Days that "count": for a checkbox, days answered yes; for every other kind,
-   * days with any value recorded. Never inferred from absence -- an unlogged
-   * day is not a zero (sparse truth, as in habits v2).
+   * Days the habit actually HAPPENED: a checkbox answered yes, a yes/no choice
+   * answered Yes, a number above zero. Never inferred from absence -- an
+   * unlogged day is not a no (sparse truth, as in habits v2).
    */
   count: number;
+  /**
+   * True when the habit has no single "did it happen" reading -- a
+   * multi-option choice like green/red/life -- so `count` is days logged
+   * rather than days it occurred. The UI marks these so the number is not
+   * misread as an occurrence rate.
+   */
+  countsLoggedOnly: boolean;
   /** Days the habit was logged at all, whatever the value. */
   loggedDays: number;
   /** Complete days in the window -- the denominator for the percentage. */
@@ -89,16 +96,10 @@ export function useHabitDashboard(range: TimeRange, habits: ResolvedHabit[]) {
       let loggedDays = 0;
 
       for (const log of habitLogs) {
-        const { logged, value } = interpretLog(habit.valueKind, log);
-        if (!logged) continue;
+        const occurred = isHabitOccurrence(habit, log);
+        if (occurred === null) continue; // nothing logged that day
         loggedDays += 1;
-        // A checkbox only counts when the answer was yes; other kinds count as
-        // soon as anything was recorded.
-        if (habit.valueKind === "checkbox") {
-          if (value === true) count += 1;
-        } else {
-          count += 1;
-        }
+        if (occurred) count += 1;
       }
 
       return {
@@ -110,6 +111,8 @@ export function useHabitDashboard(range: TimeRange, habits: ResolvedHabit[]) {
         count,
         loggedDays,
         totalDays: days,
+        countsLoggedOnly:
+          habit.valueKind === "choice" && !isBooleanChoice(habit),
       };
     });
   }, [logs, habits, days]);

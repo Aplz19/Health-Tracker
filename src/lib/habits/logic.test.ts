@@ -8,6 +8,9 @@ import {
   enabledSorted,
   generateHabitKey,
   interpretLog,
+  isBooleanChoice,
+  isHabitOccurrence,
+  recordedKindOf,
   isMissingSchemaError,
   nextChoiceColor,
   normalizeChoiceOptions,
@@ -307,4 +310,88 @@ test("generateHabitKey produces distinct, slugged keys", () => {
   assert.match(a, /^custom_arrival_energy_[0-9a-f]{6}$/);
   assert.notEqual(a, b);
   assert.match(generateHabitKey("!!!"), /^custom_habit_[0-9a-f]{6}$/);
+});
+
+// ---------------------------------------------------------------------------
+// isHabitOccurrence — analytics habit counts
+// ---------------------------------------------------------------------------
+
+function choiceHabit(labels: string[]) {
+  return {
+    valueKind: "choice" as const,
+    choiceOptions: labels.map((label) => ({ label, color: "green" as const })),
+  };
+}
+
+test("isBooleanChoice recognises a yes/no choice in either order", () => {
+  assert.equal(isBooleanChoice(choiceHabit(["Yes", "No"])), true);
+  assert.equal(isBooleanChoice(choiceHabit(["No", "Yes"])), true);
+  assert.equal(isBooleanChoice(choiceHabit(["yes", "NO"])), true);
+});
+
+test("isBooleanChoice rejects multi-option and non-boolean choices", () => {
+  assert.equal(isBooleanChoice(choiceHabit(["green", "red", "life"])), false);
+  assert.equal(isBooleanChoice(choiceHabit(["Yes"])), false);
+  assert.equal(isBooleanChoice({ choiceOptions: null }), false);
+});
+
+test("a yes/no choice counts only the affirmative answers", () => {
+  const habit = choiceHabit(["Yes", "No"]);
+  // `completed` is true on BOTH rows: on a choice row it only marks the day
+  // answered, so consulting it would count a week of No as a week of yes.
+  const yes = makeLog({ value_kind: "choice", value_text: "Yes", completed: true });
+  const no = makeLog({ value_kind: "choice", value_text: "No", completed: true });
+  assert.equal(isHabitOccurrence(habit, yes), true);
+  assert.equal(isHabitOccurrence(habit, no), false);
+});
+
+test("a multi-option choice counts any recorded answer", () => {
+  const habit = choiceHabit(["green", "red", "life"]);
+  assert.equal(
+    isHabitOccurrence(habit, makeLog({ value_kind: "choice", value_text: "red" })),
+    true
+  );
+});
+
+test("an unlogged day is null, never false", () => {
+  const habit = choiceHabit(["Yes", "No"]);
+  assert.equal(isHabitOccurrence(habit, undefined), null);
+  assert.equal(
+    isHabitOccurrence(habit, makeLog({ value_kind: "choice", value_text: null })),
+    null
+  );
+});
+
+test("legacy rows with no value_kind snapshot are read by their contents", () => {
+  // A habit that is a choice TODAY but was a checkbox when these rows were
+  // written. Falling back to the habit's current kind would look for
+  // value_text, find none, and silently drop the row.
+  const habit = choiceHabit(["Yes", "No"]);
+  const legacyYes = makeLog({ value_kind: null, value_text: null, completed: true });
+  const legacyNo = makeLog({ value_kind: null, value_text: null, completed: false });
+  assert.equal(recordedKindOf(habit, legacyYes), "checkbox");
+  assert.equal(isHabitOccurrence(habit, legacyYes), true);
+  assert.equal(isHabitOccurrence(habit, legacyNo), false);
+});
+
+test("checkbox and number habits count as expected", () => {
+  const checkbox = { valueKind: "checkbox" as const, choiceOptions: null };
+  assert.equal(
+    isHabitOccurrence(checkbox, makeLog({ value_kind: "checkbox", completed: true })),
+    true
+  );
+  assert.equal(
+    isHabitOccurrence(checkbox, makeLog({ value_kind: "checkbox", completed: false })),
+    false
+  );
+
+  const number = { valueKind: "number" as const, choiceOptions: null };
+  assert.equal(
+    isHabitOccurrence(number, makeLog({ value_kind: "number", amount: 3 })),
+    true
+  );
+  assert.equal(
+    isHabitOccurrence(number, makeLog({ value_kind: "number", amount: 0 })),
+    false
+  );
 });

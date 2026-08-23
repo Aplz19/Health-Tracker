@@ -74,6 +74,12 @@ export function HabitDashboard({ entries, isLoading }: HabitDashboardProps) {
               <div className="text-[11px] leading-tight text-muted-foreground line-clamp-2">
                 {entry.emoji ? `${entry.emoji} ` : ""}
                 {entry.name}
+                {/* A multi-option choice has no single "did it happen"
+                    reading, so its number is days logged, not days it
+                    occurred. Say so rather than let it read as a rate. */}
+                {entry.countsLoggedOnly && (
+                  <span className="ml-1 opacity-60">(logged)</span>
+                )}
               </div>
               <div className="mt-1">
                 <span className="text-xl font-semibold tabular-nums">

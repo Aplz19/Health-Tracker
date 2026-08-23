@@ -238,3 +238,103 @@ export function generateHabitKey(name: string): string {
   const random = Math.random().toString(16).slice(2, 8);
   return `custom_${slug || "habit"}_${random}`;
 }
+
+// ---------------------------------------------------------------------------
+// Occurrence counting (analytics habit dashboard)
+// ---------------------------------------------------------------------------
+
+/**
+ * Labels a two-option choice uses to mean yes / no.
+ *
+ * A habit like "Coffee" with options Yes/No is semantically a checkbox that
+ * happens to be stored as a choice. Counting every answered day would report
+ * "7 of 7" for a week of answering No, which is the opposite of what the
+ * question asks.
+ */
+const AFFIRMATIVE_LABELS = new Set(["yes", "y", "true", "done", "completed", "complete"]);
+const NEGATIVE_LABELS = new Set(["no", "n", "false", "none", "skip", "skipped", "never"]);
+
+function normalizeLabel(label: string): string {
+  return label.trim().toLowerCase();
+}
+
+/** Option labels for a habit, tolerating both the object and bare-string shapes. */
+export function choiceLabels(habit: Pick<ResolvedHabit, "choiceOptions">): string[] {
+  return (habit.choiceOptions ?? []).map((option) =>
+    typeof option === "string" ? option : option.label
+  );
+}
+
+/**
+ * True when a choice habit is really a yes/no question: exactly two options,
+ * one affirmative and one negative. Anything else (day type green/red/life) has
+ * no single "did it happen" reading.
+ */
+export function isBooleanChoice(habit: Pick<ResolvedHabit, "choiceOptions">): boolean {
+  const labels = choiceLabels(habit).map(normalizeLabel);
+  if (labels.length !== 2) return false;
+  return (
+    (AFFIRMATIVE_LABELS.has(labels[0]) && NEGATIVE_LABELS.has(labels[1])) ||
+    (NEGATIVE_LABELS.has(labels[0]) && AFFIRMATIVE_LABELS.has(labels[1]))
+  );
+}
+
+/**
+ * Which kind a stored row should be read as.
+ *
+ * `value_kind` is the snapshot taken when the row was written, and is
+ * authoritative. Rows predating the snapshot have it null, and falling back to
+ * the habit's CURRENT kind silently discards them: a legacy checkbox row on a
+ * habit that is now a choice has no `value_text`, so it reads as unlogged.
+ * Infer from what the row actually holds instead.
+ */
+export function recordedKindOf(
+  habit: Pick<ResolvedHabit, "valueKind">,
+  log: HabitLog
+): HabitValueKind {
+  if (log.value_kind) return log.value_kind;
+  if (log.value_text !== null && log.value_text !== undefined) return "choice";
+  if (log.amount !== null && log.amount !== undefined) return "number";
+  if (log.completed !== null && log.completed !== undefined) return "checkbox";
+  return habit.valueKind;
+}
+
+/**
+ * Did the habit actually HAPPEN on this row? `null` means nothing was logged,
+ * which is never the same as a no (sparse truth).
+ *
+ * Note `completed` is set true on choice rows merely to mark them answered, so
+ * it must not be consulted for a choice row -- doing so counts every answered
+ * day, including the ones answered No.
+ */
+export function isHabitOccurrence(
+  habit: Pick<ResolvedHabit, "valueKind" | "choiceOptions">,
+  log: HabitLog | undefined
+): boolean | null {
+  if (!log) return null;
+
+  switch (recordedKindOf(habit, log)) {
+    case "checkbox":
+      return log.completed === true ? true : log.completed === false ? false : null;
+
+    case "choice": {
+      const text = log.value_text;
+      if (text === null || text === undefined || text === "") return null;
+      // Only a yes/no choice has a defensible occurrence reading; for a
+      // multi-option choice any recorded answer counts as a day it was logged.
+      if (!isBooleanChoice(habit)) return true;
+      const normalized = normalizeLabel(text);
+      if (AFFIRMATIVE_LABELS.has(normalized)) return true;
+      if (NEGATIVE_LABELS.has(normalized)) return false;
+      return true;
+    }
+
+    case "number":
+      if (log.amount === null || log.amount === undefined) return null;
+      return log.amount > 0;
+
+    case "scale":
+      if (log.amount === null || log.amount === undefined) return null;
+      return true;
+  }
+}
