@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAnalyticsPreferencesContext } from "@/contexts/analytics-preferences-context";
+import { HabitDashboardSettings } from "./habit-dashboard-settings";
 import type { UserMetric, MetricCategory } from "@/types/analytics";
 
 const CATEGORY_LABELS: Record<MetricCategory, string> = {
@@ -149,7 +150,9 @@ export function AnalyticsSettings() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <HabitDashboardSettings />
+
       <div>
         <h3 className="text-sm font-medium mb-2">Displayed Metrics</h3>
         <p className="text-xs text-muted-foreground mb-3">

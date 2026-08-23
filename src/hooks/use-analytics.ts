@@ -116,6 +116,33 @@ function getDaysForRange(range: TimeRange): number {
   }
 }
 
+/**
+ * The window every analytics view covers: the last N COMPLETE days.
+ *
+ * Today is deliberately excluded. Including it mixed a partial day into every
+ * average, so a number watched mid-morning drifted upward all day as food was
+ * logged -- the same "partial data is indistinguishable from a real low value"
+ * problem the nutrition-quality flag exists for, arriving through the date
+ * window instead of through the data.
+ *
+ * Exported so the habit dashboard uses exactly the same window as the charts.
+ */
+export function getAnalyticsWindow(range: TimeRange): {
+  days: number;
+  lastCompleteDay: Date;
+  startDate: string;
+  endDate: string;
+} {
+  const days = getDaysForRange(range);
+  const lastCompleteDay = subDays(startOfDay(new Date()), 1);
+  return {
+    days,
+    lastCompleteDay,
+    startDate: format(subDays(lastCompleteDay, days - 1), "yyyy-MM-dd"),
+    endDate: format(lastCompleteDay, "yyyy-MM-dd"),
+  };
+}
+
 const EMPTY_ANALYTICS: AnalyticsData = {
   nutrition: [],
   excludedNutritionDates: [],
@@ -185,9 +212,7 @@ export function useAnalytics(
 
   const fetchData = useCallback(async () => {
     if (!hasCached(cacheKey)) setIsLoading(true);
-    const days = getDaysForRange(range);
-    const startDate = format(subDays(startOfDay(new Date()), days - 1), "yyyy-MM-dd");
-    const endDate = format(new Date(), "yyyy-MM-dd");
+    const { days, lastCompleteDay, startDate, endDate } = getAnalyticsWindow(range);
 
     try {
       // These datasets are independent; fetching them together cuts analytics
@@ -380,9 +405,11 @@ export function useAnalytics(
       });
 
       // Fill in missing dates with zeros for nutrition
+      // Same window as the query above: ends on the last COMPLETE day, never
+      // today, so the series and the averages cannot disagree.
       const allDates: string[] = [];
       for (let i = days - 1; i >= 0; i--) {
-        allDates.push(format(subDays(new Date(), i), "yyyy-MM-dd"));
+        allDates.push(format(subDays(lastCompleteDay, i), "yyyy-MM-dd"));
       }
 
       // Days the user marked as not-accurately-tracked. Their nutrition is

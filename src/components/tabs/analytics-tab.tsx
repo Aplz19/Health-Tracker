@@ -5,6 +5,10 @@ import { BarChart3 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import dynamic from "next/dynamic";
 import { MetricCard } from "@/components/analytics/metric-card";
+import { HabitDashboard } from "@/components/analytics/habit-dashboard";
+import { useHabits } from "@/hooks/use-habits";
+import { useHabitDashboard } from "@/hooks/use-habit-dashboard";
+import { useHabitDashboardPreferences } from "@/hooks/use-habit-dashboard-preferences";
 
 // The detail sheet is the ONLY consumer of recharts (the heaviest chart dep)
 // and only renders when a metric is tapped — keep it out of the main bundle.
@@ -58,6 +62,19 @@ export function AnalyticsTab() {
   );
 
   const { data, isLoading } = useAnalytics(timeRange, enabledSupplementKeys);
+
+  // Habit counts for the same window as the charts. Only habits the user has
+  // kept in the dashboard (default: all enabled habits) are counted.
+  const { getEnabledHabits } = useHabits();
+  const { isEnabled: isHabitOnDashboard } = useHabitDashboardPreferences();
+  const dashboardHabits = useMemo(
+    () => getEnabledHabits().filter((habit) => isHabitOnDashboard(habit.key)),
+    [getEnabledHabits, isHabitOnDashboard]
+  );
+  const { entries: habitEntries, isLoading: habitsLoading } = useHabitDashboard(
+    timeRange,
+    dashboardHabits
+  );
 
   // Prepare all metric data
   const allMetricData: Record<string, MetricSeries> = useMemo(() => ({
@@ -144,6 +161,10 @@ export function AnalyticsTab() {
 
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-3">
+          {/* Habit counts for the selected window, directly under the range
+              selector so the denominator the numbers refer to is adjacent. */}
+          <HabitDashboard entries={habitEntries} isLoading={habitsLoading} />
+
           {/* Never let excluded days change the numbers silently. */}
           {!isLoading && data.excludedNutritionDates.length > 0 && (
             <p className="text-xs text-muted-foreground">
