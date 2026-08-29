@@ -87,6 +87,23 @@ export function isTokenExpired(tokens: WhoopTokens): boolean {
   return expiresAt - now < 5 * 60 * 1000;
 }
 
+/**
+ * A refresh that failed. `isInvalidGrant` separates a genuinely dead
+ * authorization (the member revoked access) from a transient one (network
+ * blip, WHOOP 5xx, or another process having just rotated the token).
+ */
+export class WhoopRefreshError extends Error {
+  readonly status: number;
+  readonly isInvalidGrant: boolean;
+
+  constructor(message: string, status: number, isInvalidGrant: boolean) {
+    super(message);
+    this.name = "WhoopRefreshError";
+    this.status = status;
+    this.isInvalidGrant = isInvalidGrant;
+  }
+}
+
 // Refresh access token
 export async function refreshAccessToken(
   refreshToken: string
@@ -105,36 +122,85 @@ export async function refreshAccessToken(
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to refresh token: ${response.statusText}`);
+    // Capture the body: WHOOP distinguishes a dead grant (invalid_grant) from a
+    // transient failure here, and `statusText` alone throws that away -- which
+    // is what made every failure look permanent.
+    const body = await response.text().catch(() => "");
+    throw new WhoopRefreshError(
+      `Failed to refresh token: ${response.status} ${response.statusText} ${body}`.trim(),
+      response.status,
+      /invalid_grant/i.test(body)
+    );
   }
 
   return response.json();
 }
 
 // Get valid access token for a user (refreshes if needed)
-export async function getValidAccessToken(userId: string): Promise<string | null> {
+/**
+ * A valid access token for this user, refreshing if needed.
+ *
+ * This used to call deleteTokens() on ANY refresh failure, which silently
+ * disconnected the account and forced a manual reconnect. Two things made that
+ * fire in practice:
+ *
+ *  * WHOOP rotates refresh tokens and they are single-use. The nightly cron,
+ *    the webhook receiver and the status endpoint all call this, so two of them
+ *    overlapping meant the slower one presented an already-rotated token and
+ *    got invalid_grant -- and deleted a perfectly good connection.
+ *  * A network blip or a WHOOP 5xx was treated identically to a revoked grant.
+ *
+ * Deleting was never needed to show the UI as disconnected either: the status
+ * endpoint reports `connected` from whether this function returns a token, not
+ * from whether a row exists. So it destroyed state for no benefit.
+ *
+ * Now: never delete. On a rotation race, pick up the token the other process
+ * stored. On anything else, return null and let the next run retry.
+ */
+export async function getValidAccessToken(
+  userId: string,
+  isRetry = false
+): Promise<string | null> {
   const tokens = await getStoredTokens(userId);
   if (!tokens) return null;
 
-  if (isTokenExpired(tokens)) {
-    try {
-      const newTokens = await refreshAccessToken(tokens.refresh_token);
-      await storeTokens(
-        userId,
-        newTokens.access_token,
-        newTokens.refresh_token,
-        newTokens.expires_in,
-        tokens.whoop_user_id || undefined
-      );
-      return newTokens.access_token;
-    } catch {
-      // Refresh failed, tokens are invalid
-      await deleteTokens(userId);
-      return null;
-    }
-  }
+  if (!isTokenExpired(tokens)) return tokens.access_token;
 
-  return tokens.access_token;
+  try {
+    const newTokens = await refreshAccessToken(tokens.refresh_token);
+    await storeTokens(
+      userId,
+      newTokens.access_token,
+      newTokens.refresh_token,
+      newTokens.expires_in,
+      tokens.whoop_user_id || undefined
+    );
+    return newTokens.access_token;
+  } catch (err) {
+    const invalidGrant = err instanceof WhoopRefreshError && err.isInvalidGrant;
+
+    if (invalidGrant && !isRetry) {
+      // Another process may have rotated the token between our read and our
+      // refresh. If what is stored has changed, that refresh succeeded and we
+      // simply lost the race -- use its result rather than tearing down.
+      const current = await getStoredTokens(userId);
+      if (current && current.refresh_token !== tokens.refresh_token) {
+        console.warn("[Whoop] lost a refresh race; using the token stored by the other caller");
+        return getValidAccessToken(userId, true);
+      }
+    }
+
+    // Leave the stored tokens alone. A revoked grant will keep failing and the
+    // UI will keep reporting disconnected; a transient failure fixes itself on
+    // the next run. Either way the user's connection is not destroyed by a
+    // single bad request.
+    console.error(
+      `[Whoop] token refresh failed for ${userId}` +
+        (invalidGrant ? " (invalid_grant -- the member may have revoked access)" : " (transient)"),
+      err
+    );
+    return null;
+  }
 }
 
 // Generic API request helper

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { DEFAULT_SYNC_LOOKBACK_DAYS, syncWhoopRange } from "@/lib/whoop/sync";
 import { syncBodyMeasurement } from "@/lib/whoop/body";
+import { getValidAccessToken } from "@/lib/whoop/client";
 import { addDays, localDateString } from "@/lib/daily-summary/date";
 
 // Called by Vercel Cron daily -- see vercel.json.
@@ -69,11 +70,15 @@ export async function GET(request: NextRequest) {
 
     for (const userId of userIds) {
       try {
-        const r = await syncWhoopRange(supabase, userId, startStr, today);
+        // One token for the whole run: see getValidAccessToken.
+        const accessToken = await getValidAccessToken(userId);
+        if (!accessToken) throw new Error("No valid access token");
+
+        const r = await syncWhoopRange(supabase, userId, startStr, today, accessToken);
         // WHOOP exposes only a current snapshot of body weight, so sampling it
         // once a day is how a series gets built. Never fatal: a token issued
         // before read:body_measurement simply reports skipped.
-        const body = await syncBodyMeasurement(supabase, userId);
+        const body = await syncBodyMeasurement(supabase, userId, accessToken);
         results.push({
           userId,
           success: true,

@@ -28,9 +28,11 @@ export type BodySyncOutcome =
 
 export async function syncBodyMeasurement(
   supabase: SupabaseClient,
-  userId: string
+  userId: string,
+  // See syncWhoopRange: share one token per run rather than refreshing twice.
+  token?: string
 ): Promise<BodySyncOutcome> {
-  const accessToken = await getValidAccessToken(userId);
+  const accessToken = token ?? (await getValidAccessToken(userId));
   if (!accessToken) return { status: "skipped", reason: "no valid access token" };
 
   let weightKg: number;

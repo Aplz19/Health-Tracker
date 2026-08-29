@@ -60,9 +60,14 @@ export async function syncWhoopRange(
   supabase: SupabaseClient,
   userId: string,
   startStr: string,
-  endStr: string
+  endStr: string,
+  // Pass a token in when the caller already holds one. Each independent call to
+  // getValidAccessToken can trigger its own refresh, and WHOOP's refresh tokens
+  // are single-use -- so two of them racing used to end with a disconnected
+  // account. Sharing one token per run removes that race.
+  token?: string
 ): Promise<WhoopSyncResult> {
-  const accessToken = await getValidAccessToken(userId);
+  const accessToken = token ?? (await getValidAccessToken(userId));
   if (!accessToken) throw new Error("No valid access token");
 
   const [cycles, recoveries, sleeps] = await Promise.all([
